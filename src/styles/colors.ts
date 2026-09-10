@@ -1,0 +1,23 @@
+export const colors = {
+  primary: '#0B2A4A',
+  primaryLight: '#1B3A5A',
+  secondary: '#FFD700',
+  secondaryLight: '#FFE44D',
+  success: '#4CAF50',
+  error: '#EF4444',
+  warning: '#F59E0B',
+  info: '#3B82F6',
+  white: '#FFFFFF',
+  black: '#000000',
+  text: '#1A1A2E',
+  textSecondary: '#64748B',
+  background: '#F5F5F5',
+  card: '#FFFFFF',
+  border: '#E2E8F0',
+  shadow: 'rgba(0,0,0,0.1)',
+  // New colors from HTML
+  navy: '#1B2A4A',
+  navyDark: '#0F1A3A',
+  gray: '#F8FAFC',
+  grayBorder: '#E9EDF4',
+};
