@@ -3,7 +3,7 @@ import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Subject = {
@@ -11,19 +11,21 @@ type Subject = {
   name: string;
   code: string;
   grade_level: string;
-  description: string;
+  strand: string;
+  semester: string;
+  quarter: string;
+  subject_type: string;
+  hours: number;
 };
 
 export default function AdminSubjects() {
   const router = useRouter();
-  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [search, setSearch] = useState('');
   const [filterGrade, setFilterGrade] = useState('');
 
-  useEffect(() => {
-    loadSubjects();
-  }, []);
+  useEffect(() => { loadSubjects(); }, []);
 
   const loadSubjects = async () => {
     setLoading(true);
@@ -31,231 +33,192 @@ export default function AdminSubjects() {
       const { data, error } = await supabase
         .from('subjects')
         .select('*')
-        .order('grade_level', { ascending: true });
+        .order('grade_level', { ascending: true })
+        .order('name', { ascending: true });
 
       if (error) throw error;
-      setSubjects(data || []);
-    } catch (error) {
-      console.error('Error loading subjects:', error);
-      Alert.alert('Error', 'Failed to load subjects');
+      if (data) setSubjects(data);
+    } catch (e) {
+      console.error('Error:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredSubjects = subjects.filter((subject) => {
-    const matchesSearch = subject.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          subject.code.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesGrade = filterGrade ? subject.grade_level === filterGrade : true;
-    return matchesSearch && matchesGrade;
+  const typeColor = (t: string) => {
+    switch (t) {
+      case 'Core': return '#4CAF50';
+      case 'Applied': return '#2196F3';
+      case 'Specialized': return '#9C27B0';
+      default: return '#666';
+    }
+  };
+
+  const filtered = subjects.filter(s => {
+    const matchSearch = s.name.toLowerCase().includes(search.toLowerCase())
+      || s.code.toLowerCase().includes(search.toLowerCase());
+    const matchGrade = filterGrade ? s.grade_level === filterGrade : true;
+    return matchSearch && matchGrade;
   });
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading subjects...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
           <Text style={styles.title}>Subjects</Text>
-          <TouchableOpacity onPress={() => router.push('./add-subject')} style={styles.addButton}>
-            <Ionicons name="add" size={24} color={colors.white} />
+          <TouchableOpacity onPress={loadSubjects} style={styles.refreshButton}>
+            <Ionicons name="refresh" size={22} color={colors.primary} />
           </TouchableOpacity>
         </View>
 
+        {/* Summary */}
+        <View style={styles.summary}>
+          <Ionicons name="book" size={24} color={colors.primary} />
+          <View style={{ flex: 1, marginLeft: spacing.md }}>
+            <Text style={styles.summaryLabel}>Total Subjects</Text>
+            <Text style={styles.summaryValue}>{subjects.length}</Text>
+          </View>
+        </View>
+
+        {/* Search */}
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+          <Ionicons name="search" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search subjects..."
+            placeholder="Search by name or code..."
             placeholderTextColor="#999"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={search}
+            onChangeText={setSearch}
           />
+          {search ? (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          <TouchableOpacity 
-            style={[styles.filterChip, !filterGrade && styles.filterChipActive]}
+        {/* Filter chips */}
+        <View style={styles.chips}>
+          <TouchableOpacity
+            style={[styles.chip, !filterGrade && styles.chipActive]}
             onPress={() => setFilterGrade('')}
           >
-            <Text style={[styles.filterChipText, !filterGrade && styles.filterChipTextActive]}>All</Text>
+            <Text style={[styles.chipText, !filterGrade && styles.chipTextActive]}>All</Text>
           </TouchableOpacity>
-          {['7', '8', '9', '10', '11', '12'].map((grade) => (
+          {['11', '12'].map(g => (
             <TouchableOpacity
-              key={grade}
-              style={[styles.filterChip, filterGrade === grade && styles.filterChipActive]}
-              onPress={() => setFilterGrade(filterGrade === grade ? '' : grade)}
+              key={g}
+              style={[styles.chip, filterGrade === g && styles.chipActive]}
+              onPress={() => setFilterGrade(g)}
             >
-              <Text style={[styles.filterChipText, filterGrade === grade && styles.filterChipTextActive]}>
-                Grade {grade}
-              </Text>
+              <Text style={[styles.chipText, filterGrade === g && styles.chipTextActive]}>Grade {g}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
-        <ScrollView style={styles.list}>
-          {filteredSubjects.map((subject) => (
-            <View key={subject.id} style={styles.subjectCard}>
-              <View style={styles.subjectIcon}>
-                <Ionicons name="book" size={24} color={colors.primary} />
-              </View>
-              <View style={styles.subjectInfo}>
-                <Text style={styles.subjectName}>{subject.name}</Text>
-                <Text style={styles.subjectDetails}>
-                  {subject.code} • Grade {subject.grade_level}
-                </Text>
-                {subject.description && (
-                  <Text style={styles.subjectDescription} numberOfLines={1}>
-                    {subject.description}
+        {/* Table */}
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 3 }]}>Subject</Text>
+            <Text style={[styles.th, { flex: 1.5 }]}>Code</Text>
+            <Text style={[styles.th, { flex: 1.5 }]}>Type</Text>
+          </View>
+          {filtered.length > 0 ? (
+            filtered.map(s => (
+              <View key={s.id} style={styles.tableRow}>
+                <View style={{ flex: 3 }}>
+                  <Text style={styles.cellBold}>{s.name}</Text>
+                  <Text style={styles.cellSub}>
+                    Grade {s.grade_level}
+                    {s.strand && s.strand !== 'N/A' ? ` • ${s.strand}` : ''}
+                    {s.semester ? ` • ${s.semester}` : ''}
                   </Text>
-                )}
+                </View>
+                <Text style={[styles.cell, { flex: 1.5 }]}>{s.code}</Text>
+                <View style={{ flex: 1.5 }}>
+                  <View style={[styles.typeBadge, { backgroundColor: typeColor(s.subject_type) + '20' }]}>
+                    <Text style={[styles.typeText, { color: typeColor(s.subject_type) }]}>
+                      {s.subject_type}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <TouchableOpacity style={styles.editButton}>
-                <Ionicons name="ellipsis-vertical" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          ))}
-          {filteredSubjects.length === 0 && (
-            <View style={styles.emptyState}>
-              <Ionicons name="book" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>No subjects found</Text>
-            </View>
+            ))
+          ) : (
+            <Text style={styles.emptyText}>No subjects found</Text>
           )}
-        </ScrollView>
-      </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  container: {
-    flex: 1,
-    padding: spacing.md,
-  },
+  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, padding: spacing.md },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: spacing.md, color: '#666', fontSize: typography.sizes.md },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    paddingTop: spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.md, paddingTop: spacing.md,
   },
-  backButton: {
-    padding: spacing.sm,
+  backButton: { padding: spacing.sm },
+  refreshButton: { padding: spacing.sm },
+  title: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.text },
+  summary: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.white, borderRadius: 12, padding: spacing.md,
+    marginBottom: spacing.md, elevation: 2,
   },
-  title: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-  },
-  addButton: {
-    backgroundColor: colors.primary,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  summaryLabel: { fontSize: typography.sizes.sm, color: '#666' },
+  summaryValue: { fontSize: typography.sizes.xxl, fontWeight: typography.weights.bold, color: colors.text },
   searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 10,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.white, borderRadius: 10,
+    paddingHorizontal: spacing.md, marginBottom: spacing.sm, gap: spacing.sm,
+    elevation: 1,
   },
-  searchIcon: {
-    marginRight: spacing.sm,
+  searchInput: { flex: 1, paddingVertical: spacing.md, color: colors.text, fontSize: typography.sizes.sm },
+  chips: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  chip: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
+    borderRadius: 20, backgroundColor: colors.white,
+    borderWidth: 1, borderColor: colors.border,
   },
-  searchInput: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    fontSize: typography.sizes.sm,
-    color: colors.text,
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { fontSize: typography.sizes.xs, color: '#666' },
+  chipTextActive: { color: colors.white },
+  table: {
+    backgroundColor: colors.white, borderRadius: 12, overflow: 'hidden', elevation: 2,
   },
-  filterScroll: {
-    flexDirection: 'row',
-    marginBottom: spacing.md,
+  tableHeader: {
+    flexDirection: 'row', backgroundColor: colors.primary + '10',
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
   },
-  filterChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: spacing.sm,
-    backgroundColor: colors.white,
+  th: { fontSize: typography.sizes.xs, color: colors.primary, fontWeight: typography.weights.semibold },
+  tableRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: spacing.md, paddingHorizontal: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  filterChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  filterChipText: {
-    fontSize: typography.sizes.xs,
-    color: colors.text,
-  },
-  filterChipTextActive: {
-    color: colors.white,
-  },
-  list: {
-    flex: 1,
-  },
-  subjectCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  subjectIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary + '10',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  subjectInfo: {
-    flex: 1,
-  },
-  subjectName: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
-  },
-  subjectDetails: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-  },
-  subjectDescription: {
-    fontSize: typography.sizes.xs,
-    color: '#999',
-    marginTop: 2,
-  },
-  editButton: {
-    padding: spacing.sm,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xxxl,
-  },
-  emptyText: {
-    fontSize: typography.sizes.md,
-    color: '#999',
-    marginTop: spacing.md,
-  },
+  cell: { fontSize: typography.sizes.sm, color: colors.text },
+  cellBold: { fontSize: typography.sizes.sm, color: colors.text, fontWeight: typography.weights.medium },
+  cellSub: { fontSize: typography.sizes.xs, color: '#666', marginTop: 2 },
+  typeBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12, alignSelf: 'flex-start' },
+  typeText: { fontSize: typography.sizes.xs, fontWeight: typography.weights.medium },
+  emptyText: { padding: spacing.lg, textAlign: 'center', color: '#999', fontSize: typography.sizes.sm },
 });

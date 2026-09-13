@@ -1,9 +1,10 @@
 import { supabase } from '@/lib/supabase/client';
 import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +19,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+type StudentType = 'New Student' | 'Transferee' | 'Old Student';
+
 type EnrollmentForm = {
+  studentType: StudentType;
   firstName: string;
   lastName: string;
   middleName: string;
@@ -49,7 +53,11 @@ export default function EnrollmentPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null);
+
   const [form, setForm] = useState<EnrollmentForm>({
+    studentType: 'New Student',
     firstName: '',
     lastName: '',
     middleName: '',
@@ -76,13 +84,44 @@ export default function EnrollmentPage() {
     goodMoral: null,
   });
 
+  const studentTypes: StudentType[] = ['New Student', 'Transferee', 'Old Student'];
   const gradeLevels = ['Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'];
   const strands = ['HUMSS', 'GAS', 'STEM', 'ABM', 'TVL-Cookery', 'TVL-ICT', 'TVL-HE'];
   const genders = ['Male', 'Female'];
   const civilStatuses = ['Single', 'Married', 'Divorced', 'Widowed'];
 
-  // Show strand only for Grade 11 and 12
   const showStrand = form.gradeLevel === 'Grade 11' || form.gradeLevel === 'Grade 12';
+  const isOldStudent = form.studentType === 'Old Student';
+
+  // Detect logged-in user — required for Old Student
+  useEffect(() => {
+    const checkAuth = async () => {
+      const email = await AsyncStorage.getItem('userEmail');
+      setLoggedInEmail(email);
+      if (email) {
+        // Pre-fill email for old students
+        setForm(prev => ({ ...prev, email: prev.email || email }));
+      }
+      setCheckingAuth(false);
+    };
+    checkAuth();
+  }, []);
+
+  // If they pick "Old Student" and aren't logged in, redirect to login
+  const handleStudentTypeChange = (type: StudentType) => {
+    if (type === 'Old Student' && !loggedInEmail) {
+      Alert.alert(
+        'Login Required',
+        'Old students must log in to their account before re-enrolling. Go to login now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/(auth)/login') },
+        ]
+      );
+      return;
+    }
+    setForm({ ...form, studentType: type });
+  };
 
   const pickDocument = async (type: 'form138' | 'psaBirth' | 'goodMoral') => {
     try {
@@ -91,9 +130,7 @@ export default function EnrollmentPage() {
         copyToCacheDirectory: true,
       });
 
-      if (result.canceled) {
-        return;
-      }
+      if (result.canceled) return;
 
       const asset = result.assets[0];
       setForm({ ...form, [type]: asset });
@@ -114,7 +151,7 @@ export default function EnrollmentPage() {
       const response = await fetch(file.uri);
       const blob = await response.blob();
 
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('enrollment-documents')
         .upload(filePath, blob, {
           contentType: file.mimeType || 'application/pdf',
@@ -123,13 +160,6 @@ export default function EnrollmentPage() {
 
       if (error) {
         console.error(`Upload error for ${type}:`, error);
-        if (error.message.includes('Bucket not found')) {
-          Alert.alert(
-            'Storage Error',
-            'The document storage is not set up. Please contact the administrator.',
-            [{ text: 'OK' }]
-          );
-        }
         return null;
       }
 
@@ -146,18 +176,22 @@ export default function EnrollmentPage() {
 
   const handleSubmit = async () => {
     const {
-      firstName,
-      lastName,
-      email,
-      gradeLevel,
-      previousSchool,
-      previousGrade,
-      lastSchoolYear,
+      firstName, lastName, email, gradeLevel,
+      previousSchool, previousGrade, lastSchoolYear,
     } = form;
 
-    if (!firstName || !lastName || !email || !gradeLevel || !previousSchool || !previousGrade || !lastSchoolYear) {
+    // Validation
+    if (!firstName || !lastName || !email || !gradeLevel) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
+    }
+
+    // Transferee / New Student need previous school info
+    if ((form.studentType === 'Transferee' || form.studentType === 'New Student')) {
+      if (!previousSchool || !previousGrade || !lastSchoolYear) {
+        Alert.alert('Error', 'Please fill in your previous school information');
+        return;
+      }
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -181,36 +215,90 @@ export default function EnrollmentPage() {
 
     setLoading(true);
     try {
-      // 1. Check if email already exists in users table
+      // 1. Check if email already exists in users
       const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email)
-        .single();
+        .from('users').select('id').eq('email', email).maybeSingle();
 
-      if (existingUser) {
+      if (existingUser && form.studentType !== 'Old Student') {
         Alert.alert('Error', 'This email is already registered. Please login instead.');
         setLoading(false);
         return;
       }
 
-      // 2. Check if email already exists in students table
+      // 2. Check if student already exists
       const { data: existingStudent } = await supabase
-        .from('students')
-        .select('id')
-        .eq('email', email)
-        .single();
+        .from('students').select('id, student_type').eq('email', email).maybeSingle();
+
+      let studentId: string;
 
       if (existingStudent) {
-        Alert.alert('Error', 'This email is already used by another student.');
-        setLoading(false);
-        return;
+        // Already a student → update + create new enrollment request
+        studentId = existingStudent.id;
+
+        // Update student info
+        await supabase
+          .from('students')
+          .update({
+            first_name: firstName,
+            last_name: lastName,
+            middle_name: form.middleName || null,
+            suffix: form.suffix || null,
+            contact_number: form.phone || null,
+            date_of_birth: form.birthDate || null,
+            age: form.age ? parseInt(form.age) : null,
+            gender: form.gender || null,
+            civil_status: form.civilStatus || null,
+            nationality: form.nationality || null,
+            religion: form.religion || null,
+            address: form.address || null,
+            parent_name: form.parentName || null,
+            parent_contact: form.parentContact || null,
+            lrn: form.lrn || null,
+            grade_level: form.gradeLevel,
+            strand: showStrand ? form.strand : null,
+            student_type: form.studentType,
+          })
+          .eq('id', studentId);
+      } else {
+        // New student → create record
+        const { data: newStudent, error: studentError } = await supabase
+          .from('students')
+          .insert({
+            first_name: firstName,
+            last_name: lastName,
+            middle_name: form.middleName || null,
+            suffix: form.suffix || null,
+            email: email,
+            contact_number: form.phone || null,
+            date_of_birth: form.birthDate || null,
+            age: form.age ? parseInt(form.age) : null,
+            gender: form.gender || null,
+            civil_status: form.civilStatus || null,
+            nationality: form.nationality || null,
+            religion: form.religion || null,
+            address: form.address || null,
+            parent_name: form.parentName || null,
+            parent_contact: form.parentContact || null,
+            lrn: form.lrn || null,
+            grade_level: form.gradeLevel,
+            strand: showStrand ? form.strand : null,
+            documents_status: 'pending',
+            student_type: form.studentType,
+          })
+          .select()
+          .single();
+
+        if (studentError || !newStudent) {
+          throw new Error(studentError?.message || 'Failed to create student record');
+        }
+        studentId = newStudent.id;
       }
 
-      // 3. Create enrollment record
+      // 3. Create enrollment record — this is what shows in the Registrar's "Enrollees & Admissions" tab
       const { data: enrollmentData, error: enrollmentError } = await supabase
         .from('enrollments')
         .insert({
+          student_id: studentId,
           grade_level: gradeLevel,
           strand: showStrand ? form.strand || null : null,
           previous_school: previousSchool,
@@ -220,6 +308,7 @@ export default function EnrollmentPage() {
           email: email,
           first_name: firstName,
           last_name: lastName,
+          student_type: form.studentType,
         })
         .select()
         .single();
@@ -229,102 +318,48 @@ export default function EnrollmentPage() {
         throw enrollmentError;
       }
 
-      // 4. Create student record (without enrollment_id since it doesn't exist)
-      const studentDataToInsert: any = {
-        first_name: firstName,
-        last_name: lastName,
-        middle_name: form.middleName || null,
-        suffix: form.suffix || null,
-        email: email,
-        contact_number: form.phone || null,
-        date_of_birth: form.birthDate || null,
-        age: form.age ? parseInt(form.age) : null,
-        gender: form.gender || null,
-        civil_status: form.civilStatus || null,
-        nationality: form.nationality || null,
-        religion: form.religion || null,
-        address: form.address || null,
-        parent_name: form.parentName || null,
-        parent_contact: form.parentContact || null,
-        lrn: form.lrn || null,
-        documents_status: 'pending',
-      };
-
-      const { data: studentData, error: studentError } = await supabase
-        .from('students')
-        .insert(studentDataToInsert)
-        .select()
-        .single();
-
-      if (studentError) {
-        console.error('Student error:', studentError);
-        throw studentError;
-      }
-
-      // 5. Link enrollment to student
-      const { error: linkError } = await supabase
-        .from('enrollments')
-        .update({ student_id: studentData.id })
-        .eq('id', enrollmentData.id);
-
-      if (linkError) {
-        console.error('Link error:', linkError);
-        throw linkError;
-      }
-
-      // 6. Upload documents
+      // 4. Upload documents
       setUploading(true);
-      
-      const form138Url = await uploadDocument(form.form138, studentData.id, 'form138');
-      const psaBirthUrl = await uploadDocument(form.psaBirth, studentData.id, 'psa_birth');
-      const goodMoralUrl = await uploadDocument(form.goodMoral, studentData.id, 'good_moral');
 
-      const allDocumentsUploaded = form138Url && psaBirthUrl && goodMoralUrl;
+      const form138Url = await uploadDocument(form.form138, studentId, 'form138');
+      const psaBirthUrl = await uploadDocument(form.psaBirth, studentId, 'psa_birth');
+      const goodMoralUrl = await uploadDocument(form.goodMoral, studentId, 'good_moral');
 
-      // Update student with document URLs
+      const allUploaded = form138Url && psaBirthUrl && goodMoralUrl;
+
       const updateData: any = {
-        documents_status: allDocumentsUploaded ? 'complete' : 'pending',
+        documents_status: allUploaded ? 'complete' : 'pending',
       };
-
       if (form138Url) updateData.form_138_url = form138Url;
       if (psaBirthUrl) updateData.psa_birth_url = psaBirthUrl;
       if (goodMoralUrl) updateData.good_moral_url = goodMoralUrl;
 
-      const { error: docError } = await supabase
-        .from('students')
-        .update(updateData)
-        .eq('id', studentData.id);
+      await supabase.from('students').update(updateData).eq('id', studentId);
 
-      if (docError) {
-        console.error('Document update error:', docError);
-      }
-
-      // 7. Create notification for admin/registrar
-      await supabase
-        .from('notifications')
-        .insert({
-          title: 'New Enrollment Application',
-          message: `${firstName} ${lastName} has submitted an enrollment application. Please review and approve.`,
-          type: 'info',
-          is_read: false,
-        });
+      // 5. Notify registrar / admin
+      await supabase.from('notifications').insert({
+        title: 'New Enrollment Application',
+        message: `${form.studentType}: ${firstName} ${lastName} has submitted an enrollment application. Please review.`,
+        type: 'info',
+        is_read: false,
+      });
 
       setUploading(false);
 
-      Alert.alert(
-        'Enrollment Submitted!',
-        'Your enrollment application has been submitted successfully. Please wait for approval.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.push('/(tabs)/home'),
-          },
-        ]
-      );
+      const message =
+        form.studentType === 'Old Student'
+          ? 'Your re-enrollment request has been submitted. The registrar will review it shortly.'
+          : 'Your enrollment application has been submitted. Please wait for approval.';
 
+      Alert.alert('Enrollment Submitted!', message, [
+        {
+          text: 'OK',
+          onPress: () => router.push('/(tabs)/home'),
+        },
+      ]);
     } catch (error: any) {
       console.error('Enrollment error:', error);
-      Alert.alert('Enrollment Failed', error.message || 'An error occurred during enrollment. Please try again.');
+      Alert.alert('Enrollment Failed', error.message || 'An error occurred. Please try again.');
     } finally {
       setLoading(false);
       setUploading(false);
@@ -337,18 +372,16 @@ export default function EnrollmentPage() {
     </Text>
   );
 
-  const DocumentUploadButton = ({ 
-    label, 
-    value, 
-    onPress 
-  }: { 
-    label: string; 
-    value: any; 
-    onPress: () => void;
-  }) => (
+  const DocumentUploadButton = ({
+    label, value, onPress,
+  }: { label: string; value: any; onPress: () => void }) => (
     <TouchableOpacity style={styles.uploadButton} onPress={onPress}>
       <View style={styles.uploadContent}>
-        <Ionicons name={value ? 'checkmark-circle' : 'cloud-upload'} size={24} color={value ? colors.success : colors.primary} />
+        <Ionicons
+          name={value ? 'checkmark-circle' : 'cloud-upload'}
+          size={24}
+          color={value ? colors.success : colors.primary}
+        />
         <Text style={[styles.uploadText, value && styles.uploadTextSuccess]}>
           {value ? value.name || 'File uploaded' : label}
         </Text>
@@ -364,6 +397,16 @@ export default function EnrollmentPage() {
       )}
     </TouchableOpacity>
   );
+
+  if (checkingAuth) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -381,6 +424,62 @@ export default function EnrollmentPage() {
           </View>
 
           <View style={styles.card}>
+            {/* ================= STUDENT TYPE ================= */}
+            <Text style={styles.cardTitle}>Student Type</Text>
+            <Text style={styles.cardSubtitle}>Please select your student category</Text>
+
+            <View style={styles.studentTypeContainer}>
+              {studentTypes.map((t) => {
+                const isActive = form.studentType === t;
+                const icon =
+                  t === 'New Student' ? 'person-add'
+                  : t === 'Transferee' ? 'swap-horizontal'
+                  : 'refresh';
+                const color =
+                  t === 'New Student' ? '#2196F3'
+                  : t === 'Transferee' ? '#FF9800'
+                  : '#4CAF50';
+
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    style={[
+                      styles.studentTypeOption,
+                      isActive && { borderColor: color, backgroundColor: color + '15' },
+                    ]}
+                    onPress={() => handleStudentTypeChange(t)}
+                  >
+                    <Ionicons name={icon as any} size={24} color={isActive ? color : '#999'} />
+                    <Text style={[styles.studentTypeText, isActive && { color, fontWeight: '700' }]}>
+                      {t}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {isOldStudent && (
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle" size={20} color="#4CAF50" />
+                <Text style={styles.infoText}>
+                  You're enrolled as an <Text style={{ fontWeight: '700' }}>Old Student</Text>.
+                  Your previous records will be reused. Just confirm your details and submit.
+                </Text>
+              </View>
+            )}
+
+            {form.studentType === 'Transferee' && (
+              <View style={[styles.infoBox, { backgroundColor: '#FFF3E0' }]}>
+                <Ionicons name="information-circle" size={20} color="#FF9800" />
+                <Text style={[styles.infoText, { color: '#E65100' }]}>
+                  Transferee from another school. Please provide your previous school details.
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.divider} />
+
+            {/* ================= STUDENT INFO ================= */}
             <Text style={styles.cardTitle}>Student Information</Text>
             <Text style={styles.cardSubtitle}>Please fill in all required fields</Text>
 
@@ -445,13 +544,14 @@ export default function EnrollmentPage() {
               <View style={[styles.inputGroup, styles.halfWidth]}>
                 <SectionTitle title="Email" required />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, isOldStudent && { backgroundColor: '#f0f0f0' }]}
                   placeholder="Enter email address"
                   placeholderTextColor="#999"
                   value={form.email}
                   onChangeText={(text) => setForm({ ...form, email: text })}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  editable={!isOldStudent}
                 />
               </View>
             </View>
@@ -498,18 +598,10 @@ export default function EnrollmentPage() {
                   {genders.map((g) => (
                     <TouchableOpacity
                       key={g}
-                      style={[
-                        styles.genderOption,
-                        form.gender === g && styles.genderOptionActive,
-                      ]}
+                      style={[styles.genderOption, form.gender === g && styles.genderOptionActive]}
                       onPress={() => setForm({ ...form, gender: g })}
                     >
-                      <Text
-                        style={[
-                          styles.genderOptionText,
-                          form.gender === g && styles.genderOptionTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.genderOptionText, form.gender === g && styles.genderOptionTextActive]}>
                         {g}
                       </Text>
                     </TouchableOpacity>
@@ -525,18 +617,10 @@ export default function EnrollmentPage() {
                   {civilStatuses.map((c) => (
                     <TouchableOpacity
                       key={c}
-                      style={[
-                        styles.civilOption,
-                        form.civilStatus === c && styles.civilOptionActive,
-                      ]}
+                      style={[styles.civilOption, form.civilStatus === c && styles.civilOptionActive]}
                       onPress={() => setForm({ ...form, civilStatus: c })}
                     >
-                      <Text
-                        style={[
-                          styles.civilOptionText,
-                          form.civilStatus === c && styles.civilOptionTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.civilOptionText, form.civilStatus === c && styles.civilOptionTextActive]}>
                         {c}
                       </Text>
                     </TouchableOpacity>
@@ -568,6 +652,7 @@ export default function EnrollmentPage() {
 
             <View style={styles.divider} />
 
+            {/* ================= EDUCATION ================= */}
             <Text style={styles.cardTitle}>Education Information</Text>
 
             <View style={styles.row}>
@@ -577,18 +662,10 @@ export default function EnrollmentPage() {
                   {gradeLevels.map((g) => (
                     <TouchableOpacity
                       key={g}
-                      style={[
-                        styles.gradeOption,
-                        form.gradeLevel === g && styles.gradeOptionActive,
-                      ]}
+                      style={[styles.gradeOption, form.gradeLevel === g && styles.gradeOptionActive]}
                       onPress={() => setForm({ ...form, gradeLevel: g })}
                     >
-                      <Text
-                        style={[
-                          styles.gradeOptionText,
-                          form.gradeLevel === g && styles.gradeOptionTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.gradeOptionText, form.gradeLevel === g && styles.gradeOptionTextActive]}>
                         {g.replace('Grade ', '')}
                       </Text>
                     </TouchableOpacity>
@@ -602,18 +679,10 @@ export default function EnrollmentPage() {
                     {strands.map((s) => (
                       <TouchableOpacity
                         key={s}
-                        style={[
-                          styles.strandOption,
-                          form.strand === s && styles.strandOptionActive,
-                        ]}
+                        style={[styles.strandOption, form.strand === s && styles.strandOptionActive]}
                         onPress={() => setForm({ ...form, strand: s })}
                       >
-                        <Text
-                          style={[
-                            styles.strandOptionText,
-                            form.strand === s && styles.strandOptionTextActive,
-                          ]}
-                        >
+                        <Text style={[styles.strandOptionText, form.strand === s && styles.strandOptionTextActive]}>
                           {s}
                         </Text>
                       </TouchableOpacity>
@@ -625,17 +694,20 @@ export default function EnrollmentPage() {
 
             <View style={styles.row}>
               <View style={[styles.inputGroup, styles.halfWidth]}>
-                <SectionTitle title="Previous School" required />
+                <SectionTitle
+                  title={form.studentType === 'Old Student' ? 'Current School' : 'Previous School'}
+                  required={form.studentType !== 'Old Student'}
+                />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter previous school"
+                  placeholder="Enter school name"
                   placeholderTextColor="#999"
                   value={form.previousSchool}
                   onChangeText={(text) => setForm({ ...form, previousSchool: text })}
                 />
               </View>
               <View style={[styles.inputGroup, styles.halfWidth]}>
-                <SectionTitle title="Previous Grade" required />
+                <SectionTitle title="Previous Grade" required={form.studentType !== 'Old Student'} />
                 <TextInput
                   style={styles.input}
                   placeholder="e.g., Grade 10"
@@ -647,7 +719,7 @@ export default function EnrollmentPage() {
             </View>
 
             <View style={styles.inputGroup}>
-              <SectionTitle title="Last School Year" required />
+              <SectionTitle title="Last School Year" required={form.studentType !== 'Old Student'} />
               <TextInput
                 style={styles.input}
                 placeholder="e.g., 2024-2025"
@@ -659,6 +731,7 @@ export default function EnrollmentPage() {
 
             <View style={styles.divider} />
 
+            {/* ================= PARENT INFO ================= */}
             <Text style={styles.cardTitle}>Parent/Guardian Information</Text>
 
             <View style={styles.row}>
@@ -700,6 +773,7 @@ export default function EnrollmentPage() {
 
             <View style={styles.divider} />
 
+            {/* ================= DOCUMENTS ================= */}
             <Text style={styles.cardTitle}>Required Documents</Text>
             <Text style={styles.cardSubtitle}>Please upload the following documents</Text>
 
@@ -708,13 +782,11 @@ export default function EnrollmentPage() {
               value={form.form138}
               onPress={() => pickDocument('form138')}
             />
-
             <DocumentUploadButton
               label="PSA Certificate of Live Birth *"
               value={form.psaBirth}
               onPress={() => pickDocument('psaBirth')}
             />
-
             <DocumentUploadButton
               label="Certificate of Good Moral Character *"
               value={form.goodMoral}
@@ -724,9 +796,9 @@ export default function EnrollmentPage() {
             <View style={styles.infoBox}>
               <Ionicons name="information-circle" size={24} color={colors.primary} />
               <Text style={styles.infoText}>
-                Upon approval, you will receive an email with your account credentials:
-                {'\n'}Email: {form.email || 'your-email@example.com'}
-                {'\n'}Password: {form.lastName || 'lastname'}123
+                After approval, you'll be notified. Your application will appear in the registrar's
+                <Text style={{ fontWeight: '700' }}> Enrollees & Admissions </Text>
+                tab for review.
               </Text>
             </View>
 
@@ -763,43 +835,27 @@ export default function EnrollmentPage() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-    padding: spacing.md,
-  },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  keyboardView: { flex: 1 },
+  container: { flex: 1, padding: spacing.md },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
   },
-  backButton: {
-    padding: spacing.sm,
-  },
+  backButton: { padding: spacing.sm },
   headerTitle: {
     fontSize: typography.sizes.lg,
     fontWeight: typography.weights.bold,
     color: colors.text,
   },
-  headerPlaceholder: {
-    width: 40,
-  },
+  headerPlaceholder: { width: 40 },
   card: {
     backgroundColor: colors.white,
     borderRadius: 16,
     padding: spacing.lg,
     marginBottom: spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
     elevation: 2,
   },
   cardTitle: {
@@ -813,25 +869,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.lg,
   },
-  row: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  halfWidth: {
-    flex: 1,
-  },
-  inputGroup: {
-    marginBottom: spacing.md,
-  },
+  row: { flexDirection: 'row', gap: spacing.md },
+  halfWidth: { flex: 1 },
+  inputGroup: { marginBottom: spacing.md },
   sectionTitle: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.medium,
     color: colors.text,
     marginBottom: spacing.xs,
   },
-  required: {
-    color: colors.error,
-  },
+  required: { color: colors.error },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -841,14 +888,32 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.gray,
   },
-  textArea: {
-    minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  genderContainer: {
+  textArea: { minHeight: 60, textAlignVertical: 'top' },
+
+  // Student type selector
+  studentTypeContainer: {
     flexDirection: 'row',
     gap: spacing.sm,
+    marginBottom: spacing.md,
   },
+  studentTypeOption: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.gray,
+    alignItems: 'center',
+    gap: 4,
+  },
+  studentTypeText: {
+    fontSize: typography.sizes.xs,
+    color: '#666',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+
+  genderContainer: { flexDirection: 'row', gap: spacing.sm },
   genderOption: {
     flex: 1,
     paddingVertical: spacing.sm,
@@ -858,22 +923,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray,
     alignItems: 'center',
   },
-  genderOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  genderOptionText: {
-    fontSize: typography.sizes.sm,
-    color: colors.text,
-  },
-  genderOptionTextActive: {
-    color: colors.white,
-  },
-  civilContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
+  genderOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  genderOptionText: { fontSize: typography.sizes.sm, color: colors.text },
+  genderOptionTextActive: { color: colors.white },
+
+  civilContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   civilOption: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -882,22 +936,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.gray,
   },
-  civilOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  civilOptionText: {
-    fontSize: typography.sizes.xs,
-    color: colors.text,
-  },
-  civilOptionTextActive: {
-    color: colors.white,
-  },
-  gradeContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
+  civilOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  civilOptionText: { fontSize: typography.sizes.xs, color: colors.text },
+  civilOptionTextActive: { color: colors.white },
+
+  gradeContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   gradeOption: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -906,22 +949,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.gray,
   },
-  gradeOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  gradeOptionText: {
-    fontSize: typography.sizes.xs,
-    color: colors.text,
-  },
-  gradeOptionTextActive: {
-    color: colors.white,
-  },
-  strandContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
+  gradeOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  gradeOptionText: { fontSize: typography.sizes.xs, color: colors.text },
+  gradeOptionTextActive: { color: colors.white },
+
+  strandContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   strandOption: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -930,17 +962,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.gray,
   },
-  strandOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  strandOptionText: {
-    fontSize: typography.sizes.xs,
-    color: colors.text,
-  },
-  strandOptionTextActive: {
-    color: colors.white,
-  },
+  strandOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  strandOptionText: { fontSize: typography.sizes.xs, color: colors.text },
+  strandOptionTextActive: { color: colors.white },
+
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -952,23 +977,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     backgroundColor: colors.gray,
   },
-  uploadContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  uploadText: {
-    fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-  },
-  uploadTextSuccess: {
-    color: colors.success,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: spacing.md,
-  },
+  uploadContent: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  uploadText: { fontSize: typography.sizes.sm, color: colors.textSecondary },
+  uploadTextSuccess: { color: colors.success },
+
+  divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
   infoBox: {
     flexDirection: 'row',
     backgroundColor: colors.primary + '10',
@@ -998,16 +1011,7 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.semibold,
   },
-  loginLink: {
-    marginTop: spacing.md,
-    alignItems: 'center',
-  },
-  loginLinkText: {
-    fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-  },
-  loginLinkHighlight: {
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
-  },
+  loginLink: { marginTop: spacing.md, alignItems: 'center' },
+  loginLinkText: { fontSize: typography.sizes.sm, color: colors.textSecondary },
+  loginLinkHighlight: { color: colors.primary, fontWeight: typography.weights.semibold },
 });

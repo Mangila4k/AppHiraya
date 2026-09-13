@@ -41,7 +41,6 @@ export default function AdminDashboard() {
 
   const loadDashboardData = async () => {
     try {
-      // Get counts from users table based on role
       const { count: studentsCount } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
@@ -62,7 +61,6 @@ export default function AdminDashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('role', 'parent');
 
-      // Get counts from other tables
       const { count: sectionsCount } = await supabase
         .from('sections')
         .select('*', { count: 'exact', head: true });
@@ -133,8 +131,8 @@ export default function AdminDashboard() {
             <Text style={styles.greeting}>Hello, Admin!</Text>
             <Text style={styles.subGreeting}>Welcome to PLSNHS Dashboard</Text>
           </View>
-          <TouchableOpacity 
-            style={styles.profileBtn} 
+          <TouchableOpacity
+            style={styles.profileBtn}
             onPress={() => router.push('/admin/profile')}
           >
             <Ionicons name="person-circle" size={36} color={colors.primary} />
@@ -246,6 +244,12 @@ export default function AdminDashboard() {
               onPress={() => router.push('/admin/create-schedule')}
             />
             <ActionCard
+              title="Register Face"
+              subtitle="Scan teacher faces for verification"
+              icon="scan"
+              onPress={() => router.push('/admin/register-face')}
+            />
+            <ActionCard
               title="Manage Accounts"
               subtitle="User management"
               icon="people"
@@ -256,6 +260,12 @@ export default function AdminDashboard() {
               subtitle="Add/Edit subjects"
               icon="book"
               onPress={() => router.push('/admin/subjects')}
+            />
+            <ActionCard
+              title="Teacher Attendance"
+              subtitle="View attendance records"
+              icon="time"
+              onPress={() => router.push('/admin/attendance')}
             />
           </View>
         </View>
@@ -285,8 +295,8 @@ export default function AdminDashboard() {
         </View>
 
         {/* Profile Button at Bottom */}
-        <TouchableOpacity 
-          style={styles.bottomProfileBtn} 
+        <TouchableOpacity
+          style={styles.bottomProfileBtn}
           onPress={() => router.push('/admin/profile')}
         >
           <Ionicons name="person-circle" size={24} color={colors.white} />
