@@ -1,10 +1,22 @@
+import NotificationBell from '@/components/NotificationBell';
 import { supabase } from '@/lib/supabase/client';
+import { logLogout, logMyActivity } from '@/services/activityLog';
 import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type UserProfile = {
@@ -23,8 +35,7 @@ export default function AdminProfile() {
   const [fetching, setFetching] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  
-  // Edit Modal States
+
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -34,7 +45,6 @@ export default function AdminProfile() {
     phone: '',
   });
 
-  // Change Password Modal States
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -50,8 +60,6 @@ export default function AdminProfile() {
   const getLoggedInUser = async () => {
     try {
       const email = await AsyncStorage.getItem('userEmail');
-      console.log('📧 Retrieved email from storage:', email);
-      
       if (email) {
         setUserEmail(email);
         fetchUserProfile(email);
@@ -61,7 +69,6 @@ export default function AdminProfile() {
           setUserEmail(user.email);
           fetchUserProfile(user.email);
         } else {
-          console.log('No user email found');
           setFetching(false);
         }
       }
@@ -74,8 +81,6 @@ export default function AdminProfile() {
   const fetchUserProfile = async (email: string) => {
     setFetching(true);
     try {
-      console.log('Fetching profile for:', email);
-
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -83,13 +88,11 @@ export default function AdminProfile() {
         .single();
 
       if (error) {
-        console.error('Error fetching user:', error);
         setFetching(false);
         return;
       }
 
       if (data) {
-        console.log('✅ Profile data found:', data);
         setProfile({
           id: data.id,
           email: data.email,
@@ -99,15 +102,12 @@ export default function AdminProfile() {
           phone: data.phone || 'N/A',
           created_at: data.created_at,
         });
-        // Set edit form values
         setEditForm({
           first_name: data.first_name || '',
           last_name: data.last_name || '',
           email: data.email || '',
           phone: data.phone || '',
         });
-      } else {
-        console.log('No profile found for email:', email);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -136,23 +136,25 @@ export default function AdminProfile() {
 
       if (error) throw error;
 
-      // Update email in AsyncStorage if changed
       if (editForm.email !== profile?.email) {
         await AsyncStorage.setItem('userEmail', editForm.email.trim().toLowerCase());
-        // Update email in users table
-        const { error: emailError } = await supabase
+        await supabase
           .from('users')
           .update({ email: editForm.email.trim().toLowerCase() })
           .eq('id', profile?.id);
-        
-        if (emailError) throw emailError;
       }
+
+      await logMyActivity(
+        'profile_updated',
+        '✏️ Profile Updated',
+        'Your personal information was updated.',
+        { screen: '/admin/profile' }
+      );
 
       Alert.alert('Success', 'Profile updated successfully!');
       setEditModalVisible(false);
       await fetchUserProfile(editForm.email.trim().toLowerCase());
     } catch (error: any) {
-      console.error('Error updating profile:', error);
       Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
       setSaving(false);
@@ -164,12 +166,10 @@ export default function AdminProfile() {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       Alert.alert('Error', 'New passwords do not match');
       return;
     }
-
     if (passwordForm.newPassword.length < 6) {
       Alert.alert('Error', 'New password must be at least 6 characters');
       return;
@@ -177,7 +177,6 @@ export default function AdminProfile() {
 
     setChangingPassword(true);
     try {
-      // First verify current password from users table
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('password')
@@ -192,21 +191,24 @@ export default function AdminProfile() {
         return;
       }
 
-      // Update password in users table
       const { error } = await supabase
         .from('users')
-        .update({ 
-          password: passwordForm.newPassword 
-        })
+        .update({ password: passwordForm.newPassword })
         .eq('id', profile?.id);
 
       if (error) throw error;
+
+      await logMyActivity(
+        'password_changed',
+        '🔒 Password Changed',
+        'Your account password was changed.',
+        { screen: '/admin/profile' }
+      );
 
       Alert.alert('Success', 'Password changed successfully!');
       setPasswordModalVisible(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (error: any) {
-      console.error('Error changing password:', error);
       Alert.alert('Error', error.message || 'Failed to change password');
     } finally {
       setChangingPassword(false);
@@ -214,29 +216,26 @@ export default function AdminProfile() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await AsyncStorage.removeItem('userEmail');
-              await supabase.auth.signOut();
-              router.replace('/(auth)/login');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to logout.');
-            } finally {
-              setLoading(false);
-            }
-          },
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          setLoading(true);
+          try {
+            await logLogout();
+            await AsyncStorage.removeItem('userEmail');
+            await supabase.auth.signOut();
+            router.replace('/(auth)/login');
+          } catch (error) {
+            Alert.alert('Error', 'Failed to logout.');
+          } finally {
+            setLoading(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const getInitials = () => {
@@ -281,9 +280,7 @@ export default function AdminProfile() {
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
           <Text style={styles.title}>My Profile</Text>
-          <TouchableOpacity onPress={() => getLoggedInUser()} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
-          </TouchableOpacity>
+          <NotificationBell route="/admin/notifications" size={20} />
         </View>
 
         <View style={styles.profileCard}>
@@ -308,7 +305,7 @@ export default function AdminProfile() {
               <Text style={styles.editButtonText}>Edit</Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.infoItem}>
             <Ionicons name="person" size={20} color={colors.primary} />
             <View style={styles.infoContent}>
@@ -500,24 +497,10 @@ export default function AdminProfile() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  container: {
-    flex: 1,
-    padding: spacing.md,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: spacing.md,
-    fontSize: typography.sizes.md,
-    color: '#666',
-  },
+  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, padding: spacing.md },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
   retryButton: {
     marginTop: spacing.md,
     backgroundColor: colors.primary,
@@ -537,16 +520,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingTop: spacing.md,
   },
-  backButton: {
-    padding: spacing.sm,
-  },
+  backButton: { padding: spacing.sm },
   title: {
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
     color: colors.text,
-  },
-  refreshButton: {
-    padding: spacing.sm,
   },
   profileCard: {
     backgroundColor: colors.white,
@@ -560,16 +538,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  avatarContainer: {
-    marginBottom: spacing.md,
-  },
+  avatarContainer: { marginBottom: spacing.md },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 80, height: 80, borderRadius: 40,
     backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   avatarText: {
     fontSize: 32,
@@ -723,12 +696,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.text,
   },
-  modalBody: {
-    maxHeight: '90%',
-  },
-  inputGroup: {
-    marginBottom: spacing.md,
-  },
+  modalBody: { maxHeight: '90%' },
+  inputGroup: { marginBottom: spacing.md },
   inputLabel: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.medium,
@@ -756,17 +725,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  cancelButton: {
-    backgroundColor: '#f5f5f5',
-  },
+  cancelButton: { backgroundColor: '#f5f5f5' },
   cancelButtonText: {
     color: colors.text,
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.medium,
   },
-  saveButton: {
-    backgroundColor: colors.primary,
-  },
+  saveButton: { backgroundColor: colors.primary },
   saveButtonText: {
     color: colors.white,
     fontSize: typography.sizes.md,

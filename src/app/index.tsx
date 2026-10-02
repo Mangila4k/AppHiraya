@@ -1,11 +1,12 @@
 import { useAuth } from '@/lib/supabase/hooks/useAuth';
-import { Redirect } from 'expo-router';
+import { Href, Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
+
+type UserRole = 'admin' | 'registrar' | 'teacher' | 'student' | 'parent';
 
 export default function Index() {
   const { user, loading } = useAuth();
 
-  // Show loading while checking auth
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B2A4A' }}>
@@ -14,14 +15,13 @@ export default function Index() {
     );
   }
 
-  // If no user, go to login
   if (!user) {
-    return <Redirect href="/(auth)/login" />;
+    return <Redirect href="/(tabs)/home" />;
   }
 
-  // Get user role from metadata
-  const role = user?.user_metadata?.role || 'student';
+  const role = user.user_metadata?.role || 'student';
+  const validRoles: UserRole[] = ['admin', 'registrar', 'teacher', 'student', 'parent'];
+  const validRole = validRoles.includes(role as UserRole) ? (role as UserRole) : 'student';
   
-  // Redirect to the appropriate dashboard
-  return <Redirect href={`/(tabs)/${role}`} />;
+  return <Redirect href={`/(dashboard)/${validRole}` as Href} />;
 }

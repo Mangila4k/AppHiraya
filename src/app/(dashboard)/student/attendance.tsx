@@ -1,10 +1,19 @@
+import ChatbotFab from '@/components/ChatbotFab';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
+import { spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type RawAttendance = {
@@ -29,6 +38,17 @@ type SubjectGroup = {
   records: RawAttendance[];
 };
 
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+};
+
 export default function StudentAttendance() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -42,24 +62,18 @@ export default function StudentAttendance() {
   const loadAttendance = async () => {
     setLoading(true);
     try {
-      // 1. Get email from AsyncStorage
       const email = await AsyncStorage.getItem('userEmail');
-      console.log('📧 Email from storage:', email);
-
       if (!email) {
         Alert.alert('Not Logged In', 'Please log in again.');
         setLoading(false);
         return;
       }
 
-      // 2. Get user record
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('id, email, role')
         .eq('email', email)
         .maybeSingle();
-
-      console.log('👤 User data:', userData, 'Error:', userError);
 
       if (userError || !userData) {
         Alert.alert('Error', 'User account not found.');
@@ -67,14 +81,11 @@ export default function StudentAttendance() {
         return;
       }
 
-      // 3. Get student record BY EMAIL (students table has no user_id column)
       const { data: studentRows, error: studentError } = await supabase
         .from('students')
         .select('id, first_name, last_name, email')
         .eq('email', email)
         .limit(1);
-
-      console.log('🎓 Student rows:', studentRows, 'Error:', studentError);
 
       if (studentError || !studentRows || studentRows.length === 0) {
         Alert.alert('Error', 'Student profile not found.');
@@ -83,17 +94,12 @@ export default function StudentAttendance() {
       }
 
       const studentData = studentRows[0];
-      console.log('🎓 Using student.id =', studentData.id);
 
-      // 4. Get attendance records for this student
       const { data: attendanceData, error: attendanceError } = await supabase
         .from('attendance')
         .select('id, date, status, remarks, subject_id, student_id')
         .eq('student_id', studentData.id)
         .order('date', { ascending: false });
-
-      console.log('📥 Attendance from DB:', attendanceData);
-      console.log('❌ Attendance error:', attendanceError);
 
       if (attendanceError) {
         Alert.alert('Error', `Failed to load attendance: ${attendanceError.message}`);
@@ -102,33 +108,27 @@ export default function StudentAttendance() {
       }
 
       if (!attendanceData || attendanceData.length === 0) {
-        console.warn('⚠️ No attendance rows found for student_id:', studentData.id);
         setGroups([]);
         setLoading(false);
         return;
       }
 
-      // 5. Get subject details
-      const subjectIds = [...new Set(
-        attendanceData.map((a: any) => a.subject_id).filter(Boolean)
-      )];
-      console.log('📚 Subject IDs found:', subjectIds);
+      const subjectIds = [
+        ...new Set(attendanceData.map((a: any) => a.subject_id).filter(Boolean)),
+      ];
 
       const subjectMap: Record<string, any> = {};
       if (subjectIds.length > 0) {
-        const { data: subjectsData, error: subjectsError } = await supabase
+        const { data: subjectsData } = await supabase
           .from('subjects')
           .select('id, name, code, subject_type')
           .in('id', subjectIds);
-
-        console.log('📖 Subjects data:', subjectsData, 'Error:', subjectsError);
 
         (subjectsData || []).forEach((s: any) => {
           subjectMap[s.id] = s;
         });
       }
 
-      // 6. Group by subject
       const grouped: Record<string, SubjectGroup> = {};
 
       attendanceData.forEach((a: any) => {
@@ -154,7 +154,6 @@ export default function StudentAttendance() {
           };
         }
 
-        // Normalize status: trim + lowercase
         const normalizedStatus = String(a.status || '')
           .trim()
           .toLowerCase() as 'present' | 'absent' | 'late' | 'excused';
@@ -176,11 +175,10 @@ export default function StudentAttendance() {
         else if (normalizedStatus === 'excused') grouped[subjectId].excused++;
       });
 
-      const result: SubjectGroup[] = Object.values(grouped).map(g => ({
+      const result: SubjectGroup[] = Object.values(grouped).map((g) => ({
         ...g,
-        attendanceRate: g.total > 0
-          ? Math.round(((g.present + g.late) / g.total) * 100)
-          : 0,
+        attendanceRate:
+          g.total > 0 ? Math.round(((g.present + g.late) / g.total) * 100) : 0,
       }));
 
       result.sort((a, b) => {
@@ -189,11 +187,9 @@ export default function StudentAttendance() {
         return a.subject_name.localeCompare(b.subject_name);
       });
 
-      console.log('✅ Grouped attendance:', result);
       setGroups(result);
-
     } catch (e: any) {
-      console.error('💥 Error loading attendance:', e);
+      console.error('Error loading attendance:', e);
       Alert.alert('Error', e?.message || 'Something went wrong.');
     } finally {
       setLoading(false);
@@ -201,26 +197,36 @@ export default function StudentAttendance() {
   };
 
   const toggleSubject = (subjectId: string) => {
-    setExpandedSubject(prev => prev === subjectId ? null : subjectId);
+    setExpandedSubject((prev) => (prev === subjectId ? null : subjectId));
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'present': return '#4CAF50';
-      case 'absent': return '#F44336';
-      case 'late': return '#FF9800';
-      case 'excused': return '#2196F3';
-      default: return '#999';
+      case 'present':
+        return '#22C55E';
+      case 'absent':
+        return '#EF4444';
+      case 'late':
+        return '#F59E0B';
+      case 'excused':
+        return '#3B82F6';
+      default:
+        return NEU.textMuted;
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'present': return 'checkmark-circle';
-      case 'absent': return 'close-circle';
-      case 'late': return 'time';
-      case 'excused': return 'information-circle';
-      default: return 'help-circle';
+      case 'present':
+        return 'checkmark-circle';
+      case 'absent':
+        return 'close-circle';
+      case 'late':
+        return 'time';
+      case 'excused':
+        return 'information-circle';
+      default:
+        return 'help-circle';
     }
   };
 
@@ -230,27 +236,19 @@ export default function StudentAttendance() {
   };
 
   const getRateColor = (rate: number) => {
-    if (rate >= 95) return '#4CAF50';
-    if (rate >= 85) return '#8BC34A';
-    if (rate >= 75) return '#FF9800';
-    return '#F44336';
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'Core': return '#4CAF50';
-      case 'Applied': return '#2196F3';
-      case 'Specialized': return '#9C27B0';
-      default: return '#666';
-    }
+    if (rate >= 95) return '#22C55E';
+    if (rate >= 85) return '#84CC16';
+    if (rate >= 75) return '#F59E0B';
+    return '#EF4444';
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading attendance...</Text>
+          <View style={styles.loadingOrb}>
+            <ActivityIndicator size="small" color={NEU.accent} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -258,20 +256,25 @@ export default function StudentAttendance() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <Ionicons name="arrow-back" size={20} color={NEU.text} />
           </TouchableOpacity>
           <Text style={styles.title}>My Attendance</Text>
-          <TouchableOpacity onPress={loadAttendance} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
+          <TouchableOpacity onPress={loadAttendance} style={styles.iconBtn}>
+            <Ionicons name="refresh" size={18} color={NEU.text} />
           </TouchableOpacity>
         </View>
 
-        {/* Summary */}
         <View style={styles.summaryCard}>
-          <Ionicons name="calendar" size={24} color={colors.primary} />
+          <View style={styles.summaryIcon}>
+            <Ionicons name="calendar" size={20} color={NEU.accent} />
+          </View>
           <View style={{ flex: 1, marginLeft: spacing.md }}>
             <Text style={styles.summaryLabel}>Total Subjects</Text>
             <Text style={styles.summaryValue}>{groups.length}</Text>
@@ -284,22 +287,20 @@ export default function StudentAttendance() {
           </View>
         </View>
 
-        {/* Per-subject groups */}
         {groups.length > 0 ? (
-          groups.map(group => {
+          groups.map((group) => {
             const isExpanded = expandedSubject === group.subject_id;
             const rateColor = getRateColor(group.attendanceRate);
-            const typeColor = getTypeColor(group.subject_type);
 
             return (
               <View key={group.subject_id} style={styles.subjectGroup}>
                 <TouchableOpacity
                   style={styles.subjectHeader}
                   onPress={() => toggleSubject(group.subject_id)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.85}
                 >
-                  <View style={[styles.subjectIcon, { backgroundColor: typeColor + '20' }]}>
-                    <Ionicons name="book" size={20} color={typeColor} />
+                  <View style={styles.subjectIcon}>
+                    <Ionicons name="book" size={18} color={NEU.accent} />
                   </View>
 
                   <View style={{ flex: 1 }}>
@@ -320,52 +321,46 @@ export default function StudentAttendance() {
 
                   <Ionicons
                     name={isExpanded ? 'chevron-down' : 'chevron-forward'}
-                    size={20}
-                    color="#999"
+                    size={18}
+                    color={NEU.textMuted}
                   />
                 </TouchableOpacity>
 
                 <View style={styles.subjectStats}>
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-                      {group.present}
-                    </Text>
+                    <Text style={[styles.statValue, { color: '#22C55E' }]}>{group.present}</Text>
                     <Text style={styles.statLabel}>Present</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: '#F44336' }]}>
-                      {group.absent}
-                    </Text>
+                    <Text style={[styles.statValue, { color: '#EF4444' }]}>{group.absent}</Text>
                     <Text style={styles.statLabel}>Absent</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: '#FF9800' }]}>
-                      {group.late}
-                    </Text>
+                    <Text style={[styles.statValue, { color: '#F59E0B' }]}>{group.late}</Text>
                     <Text style={styles.statLabel}>Late</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: '#666' }]}>
-                      {group.total}
-                    </Text>
+                    <Text style={[styles.statValue, { color: NEU.text }]}>{group.total}</Text>
                     <Text style={styles.statLabel}>Total</Text>
                   </View>
                 </View>
 
                 {isExpanded ? (
                   <View style={styles.recordsContainer}>
-                    {group.records.map(record => (
+                    {group.records.map((record) => (
                       <View key={record.id} style={styles.recordItem}>
-                        <View style={[
-                          styles.recordIcon,
-                          { backgroundColor: getStatusColor(record.status) + '20' }
-                        ]}>
+                        <View
+                          style={[
+                            styles.recordIcon,
+                            { backgroundColor: getStatusColor(record.status) + '20' },
+                          ]}
+                        >
                           <Ionicons
                             name={getStatusIcon(record.status) as any}
-                            size={16}
+                            size={14}
                             color={getStatusColor(record.status)}
                           />
                         </View>
@@ -382,14 +377,15 @@ export default function StudentAttendance() {
                             <Text style={styles.recordRemarks}>{record.remarks}</Text>
                           ) : null}
                         </View>
-                        <View style={[
-                          styles.statusBadge,
-                          { backgroundColor: getStatusColor(record.status) + '20' }
-                        ]}>
-                          <Text style={[
-                            styles.statusText,
-                            { color: getStatusColor(record.status) }
-                          ]}>
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            { backgroundColor: getStatusColor(record.status) + '20' },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.statusText, { color: getStatusColor(record.status) }]}
+                          >
                             {getStatusLabel(record.status)}
                           </Text>
                         </View>
@@ -402,192 +398,159 @@ export default function StudentAttendance() {
           })
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="calendar-outline" size={50} color="#ccc" />
+            <Ionicons name="calendar-outline" size={44} color={NEU.textFaint} />
             <Text style={styles.emptyText}>No attendance records yet</Text>
             <Text style={styles.emptySubtext}>
               Your attendance will appear here once teachers mark you present.
             </Text>
             <TouchableOpacity style={styles.retryButton} onPress={loadAttendance}>
-              <Ionicons name="refresh" size={16} color={colors.white} />
+              <Ionicons name="refresh" size={16} color={NEU.accent} />
               <Text style={styles.retryButtonText}>Refresh</Text>
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+
+      <ChatbotFab />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
+  safeArea: { flex: 1, backgroundColor: NEU.bg },
   container: { flex: 1, padding: spacing.md },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    paddingTop: spacing.md,
+  loadingOrb: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  backButton: { padding: spacing.sm },
-  refreshButton: { padding: spacing.sm },
-  title: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.text },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.md, paddingTop: spacing.md,
+  },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.7, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  title: { fontSize: typography.sizes.lg, fontWeight: '700', color: NEU.text },
 
   summaryCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    elevation: 2,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NEU.bg, borderRadius: 20,
+    padding: spacing.md, marginBottom: spacing.md,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  summaryLabel: { fontSize: typography.sizes.xs, color: '#666' },
+  summaryIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
+  },
+  summaryLabel: { fontSize: typography.sizes.xs, color: NEU.textMuted },
   summaryValue: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-    marginTop: 2,
+    fontSize: typography.sizes.xl, fontWeight: '800', color: NEU.text, marginTop: 2,
   },
 
   subjectGroup: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-    elevation: 2,
+    backgroundColor: NEU.bg, borderRadius: 20,
+    marginBottom: spacing.md, overflow: 'hidden',
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   subjectHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    gap: spacing.sm,
+    flexDirection: 'row', alignItems: 'center',
+    padding: spacing.md, gap: spacing.sm,
   },
   subjectIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
-  subjectName: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-  },
-  subjectCode: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    marginTop: 2,
-  },
+  subjectName: { fontSize: typography.sizes.md, fontWeight: '700', color: NEU.text },
+  subjectCode: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
   rateBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 10,
-    marginRight: spacing.xs,
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderRadius: 10, marginRight: spacing.xs,
   },
-  rateText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-  },
+  rateText: { fontSize: typography.sizes.sm, fontWeight: '700' },
 
   subjectStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: '#fafafa',
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: spacing.md, paddingHorizontal: spacing.md,
+    borderTopWidth: 1, borderTopColor: NEU.bgDark,
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statValue: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-  },
-  statLabel: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: colors.border,
-  },
+  statValue: { fontSize: typography.sizes.lg, fontWeight: '800' },
+  statLabel: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
+  statDivider: { width: 1, height: 30, backgroundColor: NEU.bgDark, opacity: 0.6 },
 
   recordsContainer: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    paddingHorizontal: spacing.md, paddingBottom: spacing.md,
+    borderTopWidth: 1, borderTopColor: NEU.bgDark,
   },
   recordItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center',
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(209,217,230,0.5)',
     gap: spacing.sm,
   },
   recordIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
   },
-  recordDate: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
-  },
-  recordRemarks: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-  },
+  recordDate: { fontSize: typography.sizes.sm, fontWeight: '600', color: NEU.text },
+  recordRemarks: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
+  statusBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12 },
+  statusText: { fontSize: typography.sizes.xs, fontWeight: '600' },
 
   emptyContainer: {
-    alignItems: 'center',
-    padding: spacing.xxxl,
-    backgroundColor: colors.white,
-    borderRadius: 16,
+    alignItems: 'center', padding: spacing.xxxl,
+    backgroundColor: NEU.bg, borderRadius: 20,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   emptyText: {
-    fontSize: typography.sizes.md,
-    color: '#999',
-    marginTop: spacing.md,
+    fontSize: typography.sizes.md, color: NEU.textMuted,
+    marginTop: spacing.md, fontWeight: '600',
   },
   emptySubtext: {
-    fontSize: typography.sizes.sm,
-    color: '#ccc',
-    textAlign: 'center',
-    marginTop: spacing.xs,
+    fontSize: typography.sizes.sm, color: NEU.textFaint,
+    textAlign: 'center', marginTop: spacing.xs,
   },
   retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: 8,
-    marginTop: spacing.md,
-    gap: spacing.xs,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NEU.bg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    borderRadius: 12, marginTop: spacing.md, gap: spacing.xs,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.6, shadowRadius: 6, elevation: 3,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  retryButtonText: {
-    color: colors.white,
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.semibold,
-  },
+  retryButtonText: { color: NEU.accent, fontSize: typography.sizes.sm, fontWeight: '700' },
 });

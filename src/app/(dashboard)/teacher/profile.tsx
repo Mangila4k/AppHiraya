@@ -1,10 +1,22 @@
+import NotificationBell from '@/components/NotificationBell';
 import { supabase } from '@/lib/supabase/client';
+import { logLogout, logMyActivity } from '@/services/activityLog';
 import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type TeacherProfile = {
@@ -57,7 +69,6 @@ export default function TeacherProfile() {
         return;
       }
 
-      // 1. Get user by email
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -65,21 +76,15 @@ export default function TeacherProfile() {
         .single();
 
       if (userError || !userData) {
-        console.error('User not found:', userError);
         setLoading(false);
         return;
       }
 
-      // 2. Get teacher record
-      const { data: teacherData, error: teacherError } = await supabase
+      const { data: teacherData } = await supabase
         .from('teachers')
         .select('*')
         .eq('user_id', userData.id)
         .maybeSingle();
-
-      if (teacherError) {
-        console.error('Teacher lookup error:', teacherError);
-      }
 
       const profileData: TeacherProfile = {
         id: teacherData?.id || userData.id,
@@ -117,7 +122,6 @@ export default function TeacherProfile() {
 
     setSaving(true);
     try {
-      // Update users table
       const { error: userError } = await supabase
         .from('users')
         .update({
@@ -129,7 +133,6 @@ export default function TeacherProfile() {
 
       if (userError) throw userError;
 
-      // Update teachers table (if teacher record exists)
       if (profile?.id && profile.id !== profile.user_id) {
         const { error: teacherError } = await supabase
           .from('teachers')
@@ -143,6 +146,13 @@ export default function TeacherProfile() {
 
         if (teacherError) throw teacherError;
       }
+
+      await logMyActivity(
+        'profile_updated',
+        '✏️ Profile Updated',
+        'Your personal information was updated.',
+        { screen: '/teacher/profile' }
+      );
 
       Alert.alert('Success', 'Profile updated successfully!');
       setEditModalVisible(false);
@@ -189,6 +199,13 @@ export default function TeacherProfile() {
 
       if (error) throw error;
 
+      await logMyActivity(
+        'password_changed',
+        '🔒 Password Changed',
+        'Your account password was changed.',
+        { screen: '/teacher/profile' }
+      );
+
       Alert.alert('Success', 'Password changed successfully!');
       setPasswordModalVisible(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -200,35 +217,39 @@ export default function TeacherProfile() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.removeItem('userEmail');
-              router.replace('/(auth)/login');
-            } catch {
-              Alert.alert('Error', 'Failed to logout.');
-            }
-          },
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await logLogout();
+            await AsyncStorage.removeItem('userEmail');
+            router.replace('/(auth)/login');
+          } catch {
+            Alert.alert('Error', 'Failed to logout.');
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const getInitials = () => {
     if (!profile) return 'T';
-    return `${profile.first_name?.charAt(0) || ''}${profile.last_name?.charAt(0) || ''}`.toUpperCase() || 'T';
+    return (
+      `${profile.first_name?.charAt(0) || ''}${profile.last_name?.charAt(0) || ''}`.toUpperCase() ||
+      'T'
+    );
   };
 
   const getFullName = () => {
     if (!profile) return 'Teacher';
-    return `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email?.split('@')[0] || 'Teacher';
+    return (
+      `${profile.first_name || ''} ${profile.last_name || ''}`.trim() ||
+      profile.email?.split('@')[0] ||
+      'Teacher'
+    );
   };
 
   const getSpecializationColor = (spec: string) => {
@@ -276,12 +297,9 @@ export default function TeacherProfile() {
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
           <Text style={styles.title}>My Profile</Text>
-          <TouchableOpacity onPress={loadProfile} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
-          </TouchableOpacity>
+          <NotificationBell route="/teacher/notifications" size={20} />
         </View>
 
-        {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={[styles.avatar, { backgroundColor: specColor }]}>
             <Text style={styles.avatarText}>{getInitials()}</Text>
@@ -296,7 +314,6 @@ export default function TeacherProfile() {
           </View>
         </View>
 
-        {/* Teacher Information */}
         <View style={styles.infoCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Teacher Information</Text>

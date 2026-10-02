@@ -1,10 +1,18 @@
+import ChatbotFab from '@/components/ChatbotFab';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
+import { spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Classmate = {
@@ -26,6 +34,17 @@ type SectionInfo = {
   student_count: number;
 };
 
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+};
+
 export default function StudentSection() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -39,14 +58,12 @@ export default function StudentSection() {
   const loadSection = async () => {
     setLoading(true);
     try {
-      // 1. Get logged-in user email from AsyncStorage
       const email = await AsyncStorage.getItem('userEmail');
       if (!email) {
         setLoading(false);
         return;
       }
 
-      // 2. Get user record (to access student_id)
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -54,12 +71,10 @@ export default function StudentSection() {
         .single();
 
       if (userError || !userData) {
-        console.error('User not found:', userError);
         setLoading(false);
         return;
       }
 
-      // 3. Get student record from students table
       let studentData: any = null;
 
       if (userData.student_id) {
@@ -71,7 +86,6 @@ export default function StudentSection() {
         studentData = data;
       }
 
-      // Fallback: match by email
       if (!studentData) {
         const { data } = await supabase
           .from('students')
@@ -82,58 +96,47 @@ export default function StudentSection() {
       }
 
       if (!studentData?.section_id) {
-        console.log('No section assigned to this student');
         setLoading(false);
         return;
       }
 
-      // 4. Get section details WITH adviser join through teachers → users
       const { data: sectionData, error: sectionError } = await supabase
         .from('sections')
         .select(`
-          id,
-          name,
-          grade_level,
-          strand,
-          room,
-          adviser_id,
-          adviser_name,
+          id, name, grade_level, strand, room, adviser_id, adviser_name,
           teachers:adviser_id (
-            id,
-            user_id,
-            employee_id,
-            specialization,
-            users:user_id (
-              first_name,
-              last_name,
-              email
-            )
+            id, user_id, employee_id, specialization,
+            users:user_id (first_name, last_name, email)
           )
         `)
         .eq('id', studentData.section_id)
         .single();
 
-      if (sectionError) {
-        console.error('Error fetching section:', sectionError);
-      }
+      if (sectionError) console.error('Error fetching section:', sectionError);
 
-      // 5. Extract adviser info from the nested join
       let adviserName = 'No Adviser';
       let adviserEmail = '';
       let adviserSpecialization = '';
 
-      if (sectionData?.teachers) {
-        const teacher = sectionData.teachers as any;
-        const teacherUser = teacher.users;
+      const teacherRel = sectionData?.teachers
+        ? Array.isArray(sectionData.teachers)
+          ? sectionData.teachers[0]
+          : sectionData.teachers
+        : null;
 
+      if (teacherRel) {
+        const teacherUser = Array.isArray(teacherRel.users)
+          ? teacherRel.users[0]
+          : teacherRel.users;
         if (teacherUser) {
-          adviserName = `${teacherUser.first_name || ''} ${teacherUser.last_name || ''}`.trim() || 'No Adviser';
+          adviserName =
+            `${teacherUser.first_name || ''} ${teacherUser.last_name || ''}`.trim() ||
+            'No Adviser';
           adviserEmail = teacherUser.email || '';
         }
-        adviserSpecialization = teacher.specialization || '';
+        adviserSpecialization = teacherRel.specialization || '';
       }
 
-      // Fallback to adviser_name column
       if ((!adviserName || adviserName === 'No Adviser') && sectionData?.adviser_name) {
         adviserName = sectionData.adviser_name;
       }
@@ -152,36 +155,25 @@ export default function StudentSection() {
         });
       }
 
-      // 6. Get classmates from students table
-      const { data: classmatesData, error: classmatesError } = await supabase
+      const { data: classmatesData } = await supabase
         .from('students')
-        .select(`
-          id,
-          lrn,
-          gender,
-          first_name,
-          last_name,
-          middle_name
-        `)
+        .select('id, lrn, gender, first_name, last_name, middle_name')
         .eq('section_id', studentData.section_id)
         .order('last_name', { ascending: true });
-
-      if (classmatesError) {
-        console.error('Error fetching classmates:', classmatesError);
-      }
 
       if (classmatesData) {
         const list: Classmate[] = classmatesData.map((s: any) => {
           const middle = s.middle_name ? ` ${s.middle_name.charAt(0)}.` : '';
           return {
             id: s.id,
-            full_name: `${s.first_name || ''}${middle} ${s.last_name || ''}`.trim() || 'Unknown',
+            full_name:
+              `${s.first_name || ''}${middle} ${s.last_name || ''}`.trim() || 'Unknown',
             lrn: s.lrn || 'N/A',
             gender: s.gender || 'N/A',
           };
         });
         setClassmates(list);
-        setSection(prev => prev ? { ...prev, student_count: list.length } : null);
+        setSection((prev) => (prev ? { ...prev, student_count: list.length } : null));
       }
     } catch (error) {
       console.error('Error loading section:', error);
@@ -194,8 +186,9 @@ export default function StudentSection() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading section...</Text>
+          <View style={styles.loadingOrb}>
+            <ActivityIndicator size="small" color={NEU.accent} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -203,23 +196,26 @@ export default function StudentSection() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <Ionicons name="arrow-back" size={20} color={NEU.text} />
           </TouchableOpacity>
           <Text style={styles.title}>My Section</Text>
-          <TouchableOpacity onPress={loadSection} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
+          <TouchableOpacity onPress={loadSection} style={styles.iconBtn}>
+            <Ionicons name="refresh" size={18} color={NEU.text} />
           </TouchableOpacity>
         </View>
 
         {section ? (
           <>
-            {/* Section Card */}
             <View style={styles.sectionCard}>
               <View style={styles.sectionIconContainer}>
-                <Ionicons name="school" size={40} color={colors.primary} />
+                <Ionicons name="school" size={32} color={NEU.accent} />
               </View>
               <Text style={styles.sectionName}>{section.name}</Text>
               <Text style={styles.sectionDetails}>
@@ -229,22 +225,21 @@ export default function StudentSection() {
 
               <View style={styles.sectionMeta}>
                 <View style={styles.metaItem}>
-                  <Ionicons name="location" size={18} color={colors.primary} />
+                  <Ionicons name="location" size={16} color={NEU.accent} />
                   <Text style={styles.metaLabel}>Room</Text>
                   <Text style={styles.metaValue}>{section.room}</Text>
                 </View>
                 <View style={styles.metaItem}>
-                  <Ionicons name="people" size={18} color={colors.primary} />
+                  <Ionicons name="people" size={16} color={NEU.accent} />
                   <Text style={styles.metaLabel}>Students</Text>
                   <Text style={styles.metaValue}>{section.student_count}</Text>
                 </View>
               </View>
             </View>
 
-            {/* Adviser Card */}
             <View style={styles.adviserCard}>
               <View style={styles.adviserHeader}>
-                <Ionicons name="person-circle" size={24} color={colors.primary} />
+                <Ionicons name="person-circle" size={20} color={NEU.accent} />
                 <Text style={styles.adviserTitle}>Class Adviser</Text>
               </View>
               <View style={styles.adviserContent}>
@@ -267,10 +262,9 @@ export default function StudentSection() {
               </View>
             </View>
 
-            {/* Classmates */}
             <View style={styles.classmatesSection}>
               <Text style={styles.classmatesTitle}>
-                <Ionicons name="people" size={18} color={colors.primary} /> Classmates ({classmates.length})
+                Classmates ({classmates.length})
               </Text>
               {classmates.length > 0 ? (
                 classmates.map((mate, index) => (
@@ -282,16 +276,8 @@ export default function StudentSection() {
                       <Text style={styles.classmateName}>{mate.full_name}</Text>
                       <Text style={styles.classmateDetails}>LRN: {mate.lrn}</Text>
                     </View>
-                    <View style={[
-                      styles.genderBadge,
-                      { backgroundColor: mate.gender === 'Male' ? '#2196F320' : '#E91E6320' }
-                    ]}>
-                      <Text style={[
-                        styles.genderText,
-                        { color: mate.gender === 'Male' ? '#2196F3' : '#E91E63' }
-                      ]}>
-                        {mate.gender}
-                      </Text>
+                    <View style={styles.genderBadge}>
+                      <Text style={styles.genderText}>{mate.gender}</Text>
                     </View>
                   </View>
                 ))
@@ -304,191 +290,168 @@ export default function StudentSection() {
           </>
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="school-outline" size={50} color="#ccc" />
+            <Ionicons name="school-outline" size={44} color={NEU.textFaint} />
             <Text style={styles.emptyText}>You are not enrolled in a section yet</Text>
           </View>
         )}
       </ScrollView>
+
+      <ChatbotFab />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
+  safeArea: { flex: 1, backgroundColor: NEU.bg },
   container: { flex: 1, padding: spacing.md },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    paddingTop: spacing.md,
+  loadingOrb: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  backButton: { padding: spacing.sm },
-  refreshButton: { padding: spacing.sm },
-  title: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.text },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.md, paddingTop: spacing.md,
+  },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.7, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  title: { fontSize: typography.sizes.lg, fontWeight: '700', color: NEU.text },
+
   sectionCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: spacing.xl,
-    alignItems: 'center',
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: NEU.bg, borderRadius: 20, padding: spacing.xl,
+    alignItems: 'center', marginBottom: spacing.md,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 14, elevation: 6,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   sectionIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.primary + '10',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
+    width: 80, height: 80, borderRadius: 40,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: spacing.md, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.5, shadowRadius: 6, elevation: 3,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
-  sectionName: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.text },
-  sectionDetails: { fontSize: typography.sizes.sm, color: '#666', marginTop: 4 },
+  sectionName: { fontSize: typography.sizes.xl, fontWeight: '800', color: NEU.text },
+  sectionDetails: { fontSize: typography.sizes.sm, color: NEU.textMuted, marginTop: 4 },
   sectionMeta: {
-    flexDirection: 'row',
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    width: '100%',
-    justifyContent: 'space-around',
+    flexDirection: 'row', marginTop: spacing.lg, paddingTop: spacing.md,
+    borderTopWidth: 1, borderTopColor: NEU.bgDark,
+    width: '100%', justifyContent: 'space-around',
   },
   metaItem: { alignItems: 'center', flex: 1, paddingHorizontal: 4 },
-  metaLabel: { fontSize: typography.sizes.xs, color: '#666', marginTop: 4 },
+  metaLabel: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 4 },
   metaValue: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-    marginTop: 2,
-    textAlign: 'center',
+    fontSize: typography.sizes.sm, fontWeight: '700',
+    color: NEU.text, marginTop: 2, textAlign: 'center',
   },
+
   adviserCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: spacing.lg,
+    backgroundColor: NEU.bg, borderRadius: 20, padding: spacing.lg,
     marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   adviserHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginBottom: spacing.md, paddingBottom: spacing.sm,
+    borderBottomWidth: 1, borderBottomColor: NEU.bgDark,
   },
-  adviserTitle: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-  },
-  adviserContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  adviserTitle: { fontSize: typography.sizes.md, fontWeight: '700', color: NEU.text },
+  adviserContent: { flexDirection: 'row', alignItems: 'center' },
   adviserAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.primary + '15',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
+    width: 50, height: 50, borderRadius: 25,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: spacing.md, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
-  adviserAvatarText: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
+  adviserAvatarText: { fontSize: typography.sizes.xl, fontWeight: '800', color: NEU.accent },
   adviserInfo: { flex: 1 },
-  adviserName: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-  },
+  adviserName: { fontSize: typography.sizes.md, fontWeight: '700', color: NEU.text },
   adviserSpecialization: {
-    fontSize: typography.sizes.xs,
-    color: colors.primary,
-    marginTop: 2,
-    fontWeight: typography.weights.medium,
+    fontSize: typography.sizes.xs, color: NEU.accent, marginTop: 2, fontWeight: '600',
   },
-  adviserEmail: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    marginTop: 2,
-  },
+  adviserEmail: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
+
   classmatesSection: { marginBottom: spacing.lg },
   classmatesTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-    marginBottom: spacing.md,
+    fontSize: typography.sizes.md, fontWeight: '700',
+    color: NEU.text, marginBottom: spacing.md, paddingHorizontal: 4,
   },
   classmateItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NEU.bg, borderRadius: 16, padding: spacing.md,
     marginBottom: spacing.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   classmateNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary + '10',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: spacing.md, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
-  classmateNumberText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
+  classmateNumberText: { fontSize: typography.sizes.sm, fontWeight: '800', color: NEU.accent },
   classmateInfo: { flex: 1 },
-  classmateName: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
+  classmateName: { fontSize: typography.sizes.sm, fontWeight: '600', color: NEU.text },
+  classmateDetails: { fontSize: typography.sizes.xs, color: NEU.textMuted },
+  genderBadge: {
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderRadius: 12, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 3, elevation: 1,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  classmateDetails: { fontSize: typography.sizes.xs, color: '#666' },
-  genderBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12 },
-  genderText: { fontSize: typography.sizes.xs, fontWeight: typography.weights.medium },
+  genderText: { fontSize: typography.sizes.xs, fontWeight: '700', color: NEU.accent },
+
   noClassmatesContainer: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.lg,
+    backgroundColor: NEU.bg, borderRadius: 16, padding: spacing.lg,
     alignItems: 'center',
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  noClassmatesText: { fontSize: typography.sizes.sm, color: '#999' },
+  noClassmatesText: { fontSize: typography.sizes.sm, color: NEU.textMuted },
+
   emptyContainer: {
-    alignItems: 'center',
-    padding: spacing.xxxl,
-    backgroundColor: colors.white,
-    borderRadius: 16,
+    alignItems: 'center', padding: spacing.xxxl,
+    backgroundColor: NEU.bg, borderRadius: 20,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   emptyText: {
-    fontSize: typography.sizes.md,
-    color: '#999',
-    marginTop: spacing.md,
-    textAlign: 'center',
+    fontSize: typography.sizes.md, color: NEU.textMuted,
+    marginTop: spacing.md, textAlign: 'center', fontWeight: '600',
   },
 });

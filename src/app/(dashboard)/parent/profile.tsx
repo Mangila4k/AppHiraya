@@ -1,11 +1,23 @@
+import NotificationBell from '@/components/NotificationBell';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/supabase/hooks/useAuth';
+import { logLogout, logMyActivity } from '@/services/activityLog';
 import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Profile = {
@@ -55,12 +67,10 @@ export default function ParentProfile() {
     try {
       const email = await AsyncStorage.getItem('userEmail');
       if (!email) {
-        console.warn('No userEmail in AsyncStorage');
         setLoading(false);
         return;
       }
 
-      // ✅ Now fetching contact_number + address from users
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('id, first_name, last_name, email, role, contact_number, address')
@@ -70,7 +80,6 @@ export default function ParentProfile() {
       if (userError) console.error('Error fetching user:', userError);
 
       if (!userData) {
-        console.warn('No user found for email:', email);
         setLoading(false);
         return;
       }
@@ -86,23 +95,25 @@ export default function ParentProfile() {
 
       if (kidsError) console.error('Error fetching children:', kidsError);
 
-      const mappedKids: Child[] = (kids || []).map((k: any) => ({
-        id: k.id,
-        full_name: `${k.first_name || ''} ${k.last_name || ''}`.trim() || 'Unknown',
-        grade_level: k.grade_level || 'N/A',
-        strand: k.strand || 'N/A',
-        lrn: k.lrn || 'N/A',
-        section_name: k.sections?.name || 'No Section',
-        parent_contact: k.parent_contact || '',
-        parent_name: k.parent_name || '',
-      }));
+      const mappedKids: Child[] = (kids || []).map((k: any) => {
+        const sectionRel = Array.isArray(k.sections) ? k.sections[0] : k.sections;
+        return {
+          id: k.id,
+          full_name: `${k.first_name || ''} ${k.last_name || ''}`.trim() || 'Unknown',
+          grade_level: k.grade_level || 'N/A',
+          strand: k.strand || 'N/A',
+          lrn: k.lrn || 'N/A',
+          section_name: sectionRel?.name || 'No Section',
+          parent_contact: k.parent_contact || '',
+          parent_name: k.parent_name || '',
+        };
+      });
 
       setChildren(mappedKids);
 
-      // ✅ Read from users columns first, fallback to child's parent_contact
       const contact =
         userData.contact_number ||
-        mappedKids.find(k => k.parent_contact)?.parent_contact ||
+        mappedKids.find((k) => k.parent_contact)?.parent_contact ||
         'N/A';
 
       const profileData: Profile = {
@@ -111,7 +122,7 @@ export default function ParentProfile() {
         last_name: userData.last_name || '',
         email: userData.email || email,
         contact_number: contact,
-        address: userData.address || 'N/A',   // ✅ now from users
+        address: userData.address || 'N/A',
         role: userData.role || 'parent',
       };
 
@@ -145,7 +156,6 @@ export default function ParentProfile() {
     try {
       const cleanEmail = editForm.email.trim().toLowerCase();
 
-      // ✅ Now saving contact_number + address to users
       const { error: userError } = await supabase
         .from('users')
         .update({
@@ -160,25 +170,27 @@ export default function ParentProfile() {
 
       if (userError) throw userError;
 
-      // Keep the student rows in sync too
       if (children.length > 0) {
-        const { error: studentsError } = await supabase
+        await supabase
           .from('students')
           .update({
             parent_name: `${editForm.first_name.trim()} ${editForm.last_name.trim()}`,
             parent_contact: editForm.contact_number.trim() || null,
             updated_at: new Date().toISOString(),
           })
-          .in('id', children.map(c => c.id));
-
-        if (studentsError) {
-          console.warn('Could not update students parent info:', studentsError);
-        }
+          .in('id', children.map((c) => c.id));
       }
 
       if (cleanEmail !== profile?.email) {
         await AsyncStorage.setItem('userEmail', cleanEmail);
       }
+
+      await logMyActivity(
+        'profile_updated',
+        '✏️ Profile Updated',
+        'Your personal information was updated.',
+        { screen: '/parent/profile' }
+      );
 
       Alert.alert('Success', 'Profile updated successfully!');
       setEditModalVisible(false);
@@ -197,6 +209,7 @@ export default function ParentProfile() {
         text: 'Log Out',
         style: 'destructive',
         onPress: async () => {
+          await logLogout();
           await AsyncStorage.removeItem('userEmail');
           if (signOut) await signOut();
           router.replace('/(auth)/login');
@@ -217,7 +230,8 @@ export default function ParentProfile() {
   }
 
   const initials = profile
-    ? `${(profile.first_name || '').charAt(0)}${(profile.last_name || '').charAt(0)}`.toUpperCase() || 'P'
+    ? `${(profile.first_name || '').charAt(0)}${(profile.last_name || '').charAt(0)}`.toUpperCase() ||
+      'P'
     : 'P';
 
   const fullName = profile
@@ -232,10 +246,9 @@ export default function ParentProfile() {
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
           <Text style={styles.title}>Profile</Text>
-          <View style={{ width: 40 }} />
+          <NotificationBell route="/parent/notifications" size={20} />
         </View>
 
-        {/* Avatar + Name */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
@@ -248,7 +261,6 @@ export default function ParentProfile() {
           <Text style={styles.email}>{profile?.email}</Text>
         </View>
 
-        {/* Personal Info */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
@@ -284,14 +296,13 @@ export default function ParentProfile() {
           </View>
         </View>
 
-        {/* Children */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             <Ionicons name="school" size={16} color={colors.primary} /> My Children ({children.length})
           </Text>
 
           {children.length > 0 ? (
-            children.map(c => (
+            children.map((c) => (
               <View key={c.id} style={styles.childItem}>
                 <View style={styles.childAvatar}>
                   <Text style={styles.childInitial}>
@@ -313,7 +324,6 @@ export default function ParentProfile() {
           )}
         </View>
 
-        {/* Actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             <Ionicons name="settings" size={16} color={colors.primary} /> Actions
@@ -347,7 +357,6 @@ export default function ParentProfile() {
           </TouchableOpacity>
         </View>
 
-        {/* Logout */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out" size={20} color={colors.white} />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -356,7 +365,6 @@ export default function ParentProfile() {
         <Text style={styles.version}>Hiraya App v1.0.0</Text>
       </ScrollView>
 
-      {/* Edit Profile Modal */}
       <Modal
         animationType="slide"
         transparent

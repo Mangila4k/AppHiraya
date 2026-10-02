@@ -1,40 +1,78 @@
+import NotificationBell from '@/components/NotificationBell';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
-const isSmallScreen = width < 380;
+const DRAWER_WIDTH = Math.min(width * 0.78, 320);
 
 type TeacherInfo = {
   id: string;
-  employee_id: string;
+  first_name: string;
+  last_name: string;
   full_name: string;
   email: string;
-  specialization: string;
+  department: string;
+  employee_id: string;
 };
 
-type Stats = {
-  totalSubjects: number;
-  totalSections: number;
-  totalStudents: number;
-  todayClasses: number;
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+  danger: '#EF4444',
 };
 
 export default function TeacherDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [teacher, setTeacher] = useState<TeacherInfo | null>(null);
-  const [stats, setStats] = useState<Stats>({
-    totalSubjects: 0,
-    totalSections: 0,
+  const [stats, setStats] = useState({
+    totalClasses: 0,
     totalStudents: 0,
     todayClasses: 0,
+    pendingGrades: 0,
   });
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const slideAnim = useState(new Animated.Value(-DRAWER_WIDTH))[0];
+
+  const openDrawer = () => {
+    setDrawerOpen(true);
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeDrawer = () => {
+    Animated.timing(slideAnim, {
+      toValue: -DRAWER_WIDTH,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => setDrawerOpen(false));
+  };
 
   useEffect(() => {
     loadTeacherData();
@@ -53,7 +91,7 @@ export default function TeacherDashboard() {
         .from('users')
         .select('*')
         .eq('email', email)
-        .single();
+        .maybeSingle();
 
       if (!userData) {
         setLoading(false);
@@ -62,96 +100,74 @@ export default function TeacherDashboard() {
 
       const { data: teacherData } = await supabase
         .from('teachers')
-        .select(`
-          id,
-          user_id,
-          employee_id,
-          specialization,
-          users:user_id (first_name, last_name, email)
-        `)
-        .eq('user_id', userData.id)
+        .select('*')
+        .eq('email', email)
         .maybeSingle();
 
-      if (!teacherData) {
-        setLoading(false);
-        return;
-      }
-
-      const tu = (teacherData as any).users;
+      const t = teacherData || userData;
 
       setTeacher({
-        id: teacherData.id,
-        employee_id: teacherData.employee_id || 'N/A',
-        full_name: `${tu?.first_name || ''} ${tu?.last_name || ''}`.trim() || 'Teacher',
-        email: tu?.email || email,
-        specialization: teacherData.specialization || 'N/A',
+        id: t.id || userData.id,
+        first_name: t.first_name || userData.first_name || '',
+        last_name: t.last_name || userData.last_name || '',
+        full_name:
+          `${t.first_name || userData.first_name || ''} ${t.last_name || userData.last_name || ''}`.trim() ||
+          'Teacher',
+        email: email,
+        department: t.department || 'General',
+        employee_id: t.employee_id || 'N/A',
       });
 
-      // Fetch teacher's schedules
-      const { data: schedulesData } = await supabase
+      // Schedules assigned to this teacher
+      const { data: scheds } = await supabase
         .from('schedules')
-        .select('id, section_id, subject_id, day, start_time, end_time')
-        .eq('teacher_id', teacherData.id);
+        .select('id, section_id, day')
+        .eq('teacher_id', teacherData?.id || userData.id);
 
-      // Unique subjects & sections
-      const uniqueSubjects = new Set(
-        (schedulesData || []).map((s: any) => s.subject_id).filter(Boolean)
-      );
-      const uniqueSections = new Set(
-        (schedulesData || []).map((s: any) => s.section_id).filter(Boolean)
-      );
-
-      // Count students in those sections
-      let totalStudents = 0;
-      if (uniqueSections.size > 0) {
-        const { count } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true })
-          .in('section_id', [...uniqueSections]);
-        totalStudents = count || 0;
-      }
-
-      // Today's classes
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      const todayClasses = (schedulesData || []).filter(
-        (s: any) => s.day === today
-      ).length;
 
       setStats({
-        totalSubjects: uniqueSubjects.size,
-        totalSections: uniqueSections.size,
-        totalStudents,
-        todayClasses,
+        totalClasses: scheds?.length || 0,
+        totalStudents: 0,
+        todayClasses: scheds?.filter((s: any) => s.day === today).length || 0,
+        pendingGrades: 0,
       });
-    } catch (error) {
-      console.error('Error loading teacher data:', error);
+    } catch (e) {
+      console.error('Teacher dashboard load error:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  const StatCard = ({ title, value, icon, color, onPress }: any) => (
-    <TouchableOpacity style={[styles.statCard, { borderLeftColor: color }]} onPress={onPress}>
-      <View style={styles.statHeader}>
-        <Text style={styles.statTitle} numberOfLines={1}>{title}</Text>
-        <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
-          <Ionicons name={icon} size={isSmallScreen ? 16 : 20} color={color} />
-        </View>
+  const StatCard = ({ title, value, icon, onPress, suffix }: any) => (
+    <TouchableOpacity style={styles.statCard} onPress={onPress} activeOpacity={0.85}>
+      <View style={styles.statIconWrap}>
+        <Ionicons name={icon} size={18} color={NEU.accent} />
       </View>
-      <Text style={styles.statNumber}>{value}</Text>
+      <Text style={styles.statNumber}>
+        {value}
+        {suffix || ''}
+      </Text>
+      <Text style={styles.statTitle} numberOfLines={1}>
+        {title}
+      </Text>
     </TouchableOpacity>
   );
 
-  const ActionCard = ({ title, subtitle, icon, onPress }: any) => (
-    <TouchableOpacity style={styles.actionCard} onPress={onPress}>
-      <View style={styles.actionIcon}>
-        <Ionicons name={icon} size={isSmallScreen ? 20 : 24} color={colors.primary} />
+  const DrawerItem = ({ icon, title, onPress }: any) => (
+    <TouchableOpacity
+      style={styles.drawerItem}
+      onPress={() => {
+        closeDrawer();
+        setTimeout(() => onPress?.(), 220);
+      }}
+      activeOpacity={0.7}
+    >
+      <View style={styles.drawerItemIcon}>
+        <Ionicons name={icon} size={18} color={NEU.accent} />
       </View>
-      <View style={styles.actionInfo}>
-        <Text style={styles.actionTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.actionSubtitle} numberOfLines={1}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="#ccc" />
+      <Text style={styles.drawerItemTitle}>{title}</Text>
+      <Ionicons name="chevron-forward" size={16} color={NEU.textFaint} />
     </TouchableOpacity>
   );
 
@@ -159,8 +175,9 @@ export default function TeacherDashboard() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
+          <View style={styles.loadingOrb}>
+            <ActivityIndicator size="small" color={NEU.accent} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -168,273 +185,327 @@ export default function TeacherDashboard() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ===== HEADER ===== */}
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>Hello, {teacher?.full_name?.split(' ')[0] || 'Teacher'}!</Text>
-            <Text style={styles.subGreeting}>{teacher?.specialization}</Text>
-          </View>
-          <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/teacher/profile')}>
-            <Ionicons name="person-circle" size={36} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={openDrawer}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="menu-outline" size={22} color={NEU.text} />
           </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.greeting}>{teacher?.first_name || 'Teacher'}</Text>
+            <Text style={styles.subGreeting}>{teacher?.department || ''}</Text>
+          </View>
+
+          <View style={styles.headerRight}>
+            <NotificationBell iconColor={NEU.text} />
+
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push('/teacher/profile' as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-outline" size={20} color={NEU.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Teacher Info */}
+        {/* Info card */}
         {teacher && (
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
-              <Ionicons name="card" size={18} color={colors.primary} />
+              <Text style={styles.infoLabel}>Name</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {teacher.full_name}
+              </Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Employee ID</Text>
               <Text style={styles.infoValue}>{teacher.employee_id}</Text>
             </View>
+            <View style={styles.divider} />
             <View style={styles.infoRow}>
-              <Ionicons name="mail" size={18} color={colors.primary} />
+              <Text style={styles.infoLabel}>Department</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {teacher.department}
+              </Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Email</Text>
-              <Text style={styles.infoValue}>{teacher.email}</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {teacher.email}
+              </Text>
             </View>
           </View>
         )}
 
         {/* Stats */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="stats-chart" size={18} color={colors.primary} /> My Stats
-          </Text>
+          <Text style={styles.sectionLabel}>Overview</Text>
           <View style={styles.statsGrid}>
             <StatCard
-              title="My Subjects"
-              value={stats.totalSubjects}
-              icon="book"
-              color="#9C27B0"
-              onPress={() => router.push('/teacher/subjects')}
+              title="Classes"
+              value={stats.totalClasses}
+              icon="school-outline"
+              onPress={() => router.push('/teacher/classes' as any)}
             />
             <StatCard
-              title="My Sections"
-              value={stats.totalSections}
-              icon="grid"
-              color="#4CAF50"
-              onPress={() => router.push('/teacher/schedule')}
-            />
-            <StatCard
-              title="Total Students"
-              value={stats.totalStudents}
-              icon="people"
-              color="#2196F3"
-              onPress={() => router.push('/teacher/attendance')}
-            />
-            <StatCard
-              title="Today's Classes"
+              title="Today"
               value={stats.todayClasses}
-              icon="time"
-              color="#FF9800"
-              onPress={() => router.push('/teacher/schedule')}
+              icon="calendar-outline"
+              onPress={() => router.push('/teacher/schedule' as any)}
+            />
+            <StatCard
+              title="Students"
+              value={stats.totalStudents}
+              icon="people-outline"
+              onPress={() => router.push('/teacher/students' as any)}
+            />
+            <StatCard
+              title="Pending"
+              value={stats.pendingGrades}
+              icon="clipboard-outline"
+              onPress={() => router.push('/teacher/grades' as any)}
             />
           </View>
         </View>
-
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="flash" size={18} color={colors.primary} /> Quick Actions
-          </Text>
-          <View style={styles.actionsGrid}>
-            <ActionCard
-              title="Face Attendance"
-              subtitle="Mark attendance via face recognition"
-              icon="scan"
-              onPress={() => router.push('/teacher/face-attendance')}
-            />
-            <ActionCard
-              title="Manual Attendance"
-              subtitle="Mark attendance manually"
-              icon="checkbox"
-              onPress={() => router.push('/teacher/attendance')}
-            />
-            <ActionCard
-              title="My Schedule"
-              subtitle="View your teaching schedule"
-              icon="time"
-              onPress={() => router.push('/teacher/schedule')}
-            />
-            <ActionCard
-              title="My Subjects"
-              subtitle="View subjects you handle"
-              icon="book"
-              onPress={() => router.push('/teacher/subjects')}
-            />
-            <ActionCard
-              title="Grades"
-              subtitle="Enter and manage student grades"
-              icon="star"
-              onPress={() => router.push('/teacher/grades')}
-            />
-            <ActionCard
-              title="My Profile"
-              subtitle="View and edit your profile"
-              icon="person"
-              onPress={() => router.push('/teacher/profile')}
-            />
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.bottomProfileBtn}
-          onPress={() => router.push('/teacher/profile')}
-        >
-          <Ionicons name="person-circle" size={24} color={colors.white} />
-          <Text style={styles.bottomProfileText}>My Profile</Text>
-        </TouchableOpacity>
       </ScrollView>
+
+      {/* ===== Drawer ===== */}
+      <Modal
+        visible={drawerOpen}
+        transparent
+        animationType="none"
+        onRequestClose={closeDrawer}
+      >
+        <TouchableWithoutFeedback onPress={closeDrawer}>
+          <View style={styles.drawerOverlay} />
+        </TouchableWithoutFeedback>
+
+        <Animated.View
+          style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
+        >
+          <View style={styles.drawerHeader}>
+            <Text style={styles.drawerName} numberOfLines={1}>
+              {teacher?.full_name || 'Teacher'}
+            </Text>
+            <Text style={styles.drawerSub} numberOfLines={1}>
+              {teacher?.department || ''}
+            </Text>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <DrawerItem
+              icon="school-outline"
+              title="My Classes"
+              onPress={() => router.push('/teacher/classes' as any)}
+            />
+            <DrawerItem
+              icon="calendar-outline"
+              title="Schedule"
+              onPress={() => router.push('/teacher/schedule' as any)}
+            />
+            <DrawerItem
+              icon="people-outline"
+              title="Students"
+              onPress={() => router.push('/teacher/students' as any)}
+            />
+            <DrawerItem
+              icon="clipboard-outline"
+              title="Grades"
+              onPress={() => router.push('/teacher/grades' as any)}
+            />
+            <DrawerItem
+              icon="person-outline"
+              title="Profile"
+              onPress={() => router.push('/teacher/profile' as any)}
+            />
+          </ScrollView>
+
+          <TouchableOpacity
+            style={styles.drawerLogout}
+            onPress={() => {
+              closeDrawer();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={18} color={NEU.textMuted} />
+            <Text style={styles.drawerLogoutText}>Sign out</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
-  container: { flex: 1, padding: spacing.md },
+  safeArea: { flex: 1, backgroundColor: NEU.bg },
+  container: { flex: 1 },
+  contentContainer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
+  loadingOrb: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.lightShadow, shadowOffset: { width: -4, height: -4 },
+    shadowOpacity: 1, shadowRadius: 8, elevation: 6,
+  },
+
   header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-    paddingTop: spacing.md,
+    paddingVertical: 20,
   },
-  headerLeft: { flex: 1, marginRight: spacing.sm },
-  greeting: {
-    fontSize: isSmallScreen ? typography.sizes.lg : typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-  },
-  subGreeting: { fontSize: typography.sizes.sm, color: '#666', marginTop: 2 },
-  profileBtn: {
-    padding: spacing.xs,
-    backgroundColor: colors.white,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  infoCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.xs,
-    gap: spacing.sm,
-  },
-  infoLabel: { fontSize: typography.sizes.sm, color: '#666', width: 90 },
-  infoValue: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
-    flex: 1,
-  },
-  section: { marginBottom: spacing.lg },
-  sectionTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    width: '48%',
-    marginBottom: spacing.sm,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statTitle: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    fontWeight: typography.weights.medium,
-    flex: 1,
-  },
-  statIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: spacing.xs,
-  },
-  statNumber: {
-    fontSize: isSmallScreen ? typography.sizes.xl : typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-    marginTop: 4,
-  },
-  actionsGrid: { gap: spacing.sm },
-  actionCard: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  actionIcon: {
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerRight: { flexDirection: 'row', gap: 8 },
+  iconBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.primary + '10',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  actionInfo: { flex: 1 },
-  actionTitle: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-  },
-  actionSubtitle: { fontSize: typography.sizes.xs, color: '#666' },
-  bottomProfileBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: 'rgba(163,177,198,0.4)',
+    borderBottomColor: 'rgba(163,177,198,0.4)',
   },
-  bottomProfileText: {
-    color: colors.white,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
+  greeting: {
+    fontSize: 16, fontWeight: '700',
+    color: NEU.text, letterSpacing: -0.2,
+  },
+  subGreeting: {
+    fontSize: 12, color: NEU.textMuted,
+    marginTop: 2, letterSpacing: 0.2,
+  },
+
+  infoCard: {
+    paddingVertical: 8, paddingHorizontal: 20, marginBottom: 28,
+    borderRadius: 20, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.7, shadowRadius: 14, elevation: 6,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  infoRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', paddingVertical: 14,
+  },
+  infoLabel: { fontSize: 13, color: NEU.textMuted, letterSpacing: 0.3 },
+  infoValue: {
+    fontSize: 13, fontWeight: '600', color: NEU.text,
+    flex: 1, textAlign: 'right', marginLeft: 16,
+  },
+  divider: { height: 1, backgroundColor: NEU.bgDark, opacity: 0.5 },
+
+  section: { marginBottom: 24 },
+  sectionLabel: {
+    fontSize: 11, fontWeight: '700', color: NEU.textFaint,
+    letterSpacing: 1.2, textTransform: 'uppercase',
+    marginBottom: 16, paddingHorizontal: 4,
+  },
+  statsGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    justifyContent: 'space-between', gap: 16,
+  },
+  statCard: {
+    width: '47%', paddingVertical: 20, paddingHorizontal: 16,
+    borderRadius: 20, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  statIconWrap: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg, marginBottom: 12,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: NEU.lightShadow, borderBottomColor: NEU.lightShadow,
+  },
+  statNumber: {
+    fontSize: 26, fontWeight: '800',
+    color: NEU.text, letterSpacing: -0.5,
+  },
+  statTitle: {
+    fontSize: 12, color: NEU.textMuted,
+    letterSpacing: 0.3, marginTop: 4, fontWeight: '500',
+  },
+
+  drawerOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(46,58,77,0.35)',
+  },
+  drawer: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, width: DRAWER_WIDTH,
+    backgroundColor: NEU.bg, paddingTop: 72, paddingHorizontal: 24,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.6, shadowRadius: 20, elevation: 12,
+    borderRightWidth: 1, borderRightColor: NEU.lightShadow,
+  },
+  drawerHeader: {
+    paddingBottom: 24, borderBottomWidth: 1,
+    borderBottomColor: NEU.bgDark, marginBottom: 16,
+  },
+  drawerName: {
+    fontSize: 15, fontWeight: '700',
+    color: NEU.text, letterSpacing: -0.2,
+  },
+  drawerSub: {
+    fontSize: 12, color: NEU.textMuted,
+    marginTop: 4, letterSpacing: 0.2,
+  },
+  drawerItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14,
+    marginBottom: 8, gap: 14, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.4, shadowRadius: 6, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  drawerItemIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: NEU.lightShadow, borderBottomColor: NEU.lightShadow,
+  },
+  drawerItemTitle: {
+    fontSize: 14, color: NEU.text, fontWeight: '600',
+    letterSpacing: 0.1, flex: 1,
+  },
+  drawerLogout: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 16, borderTopWidth: 1,
+    borderTopColor: NEU.bgDark, gap: 8,
+  },
+  drawerLogoutText: {
+    color: NEU.textMuted, fontSize: 13,
+    fontWeight: '600', letterSpacing: 0.2,
   },
 });

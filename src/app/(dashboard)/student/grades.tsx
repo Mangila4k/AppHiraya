@@ -1,5 +1,6 @@
+import ChatbotFab from '@/components/ChatbotFab';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
+import { spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -17,15 +18,24 @@ type Grade = {
   remarks: string;
 };
 
-type GroupedGrades = {
-  [key: string]: Grade[];
-};
+type GroupedGrades = { [key: string]: Grade[] };
 
 type StudentInfo = {
   full_name: string;
   grade_level: string;
   strand: string;
   section: string;
+};
+
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
 };
 
 export default function StudentGrades() {
@@ -41,14 +51,12 @@ export default function StudentGrades() {
   const loadGrades = async () => {
     setLoading(true);
     try {
-      // 1. Get logged-in user email
       const email = await AsyncStorage.getItem('userEmail');
       if (!email) {
         setLoading(false);
         return;
       }
 
-      // 2. Get user record (to access student_id)
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -56,98 +64,82 @@ export default function StudentGrades() {
         .single();
 
       if (userError || !userData) {
-        console.error('User not found:', userError);
         setLoading(false);
         return;
       }
 
-      // 3. Get student record from students table
       let studentData: any = null;
 
       if (userData.student_id) {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('students')
           .select(`
-            id,
-            lrn,
-            first_name,
-            last_name,
-            middle_name,
-            grade_level,
-            strand,
+            id, lrn, first_name, last_name, middle_name,
+            grade_level, strand,
             sections:section_id (name)
           `)
           .eq('id', userData.student_id)
           .maybeSingle();
-
-        if (error) console.error('Error fetching student:', error);
         studentData = data;
       }
 
-      // Fallback: match by email
       if (!studentData) {
         const { data } = await supabase
           .from('students')
           .select(`
-            id,
-            lrn,
-            first_name,
-            last_name,
-            middle_name,
-            grade_level,
-            strand,
+            id, lrn, first_name, last_name, middle_name,
+            grade_level, strand,
             sections:section_id (name)
           `)
           .eq('email', email)
           .maybeSingle();
-
         studentData = data;
       }
 
       if (!studentData) {
-        console.log('No student record found');
         setLoading(false);
         return;
       }
 
-      // 4. Set student info for display
+      const sectionRel = Array.isArray(studentData.sections)
+        ? studentData.sections[0]
+        : studentData.sections;
+
       setStudentInfo({
-        full_name: `${studentData.first_name || ''} ${studentData.last_name || ''}`.trim() || 'Student',
+        full_name:
+          `${studentData.first_name || ''} ${studentData.last_name || ''}`.trim() || 'Student',
         grade_level: studentData.grade_level || 'N/A',
         strand: studentData.strand || 'N/A',
-        section: studentData.sections?.name || 'No Section',
+        section: sectionRel?.name || 'No Section',
       });
 
-      // 5. Fetch grades for this student
       const { data: gradesData, error: gradesError } = await supabase
         .from('grades')
         .select(`
-          id,
-          semester,
-          quarter,
-          grade,
-          remarks,
+          id, semester, quarter, grade, remarks,
           subjects:subject_id (name, code)
         `)
         .eq('student_id', studentData.id)
         .order('quarter', { ascending: true });
 
       if (gradesError) {
-        console.error('Error fetching grades:', gradesError);
         setLoading(false);
         return;
       }
 
       if (gradesData) {
-        const formatted: Grade[] = gradesData.map((g: any) => ({
-          id: g.id,
-          subject_name: g.subjects?.name || 'Unknown Subject',
-          subject_code: g.subjects?.code || 'N/A',
-          semester: g.semester || '',
-          quarter: g.quarter || 1,
-          grade: g.grade || 0,
-          remarks: g.remarks || '',
-        }));
+        const formatted: Grade[] = gradesData.map((g: any) => {
+          const subjRel = Array.isArray(g.subjects) ? g.subjects[0] : g.subjects;
+          return {
+            id: g.id,
+            subject_name: subjRel?.name || 'Unknown Subject',
+            subject_code: subjRel?.code || 'N/A',
+            semester: g.semester || '',
+            quarter: g.quarter || 1,
+            grade: g.grade || 0,
+            remarks: g.remarks || '',
+          };
+        });
         setGrades(formatted);
       }
     } catch (error) {
@@ -159,7 +151,7 @@ export default function StudentGrades() {
 
   const groupByQuarter = (): GroupedGrades => {
     const grouped: GroupedGrades = {};
-    grades.forEach(g => {
+    grades.forEach((g) => {
       const key = `Quarter ${g.quarter}`;
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(g);
@@ -168,11 +160,11 @@ export default function StudentGrades() {
   };
 
   const getGradeColor = (grade: number) => {
-    if (grade >= 90) return '#4CAF50';
-    if (grade >= 85) return '#8BC34A';
-    if (grade >= 80) return '#FFC107';
-    if (grade >= 75) return '#FF9800';
-    return '#F44336';
+    if (grade >= 90) return '#22C55E';
+    if (grade >= 85) return '#84CC16';
+    if (grade >= 80) return '#F59E0B';
+    if (grade >= 75) return '#F97316';
+    return '#EF4444';
   };
 
   const getGradeRemarks = (grade: number) => {
@@ -193,8 +185,9 @@ export default function StudentGrades() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading grades...</Text>
+          <View style={styles.loadingOrb}>
+            <ActivityIndicator size="small" color={NEU.accent} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -202,59 +195,57 @@ export default function StudentGrades() {
 
   const grouped = groupByQuarter();
   const quarters = Object.keys(grouped).sort((a, b) => {
-    const numA = parseInt(a.replace('Quarter ', ''));
-    const numB = parseInt(b.replace('Quarter ', ''));
-    return numA - numB;
+    return parseInt(a.replace('Quarter ', '')) - parseInt(b.replace('Quarter ', ''));
   });
   const average = calculateAverage();
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <Ionicons name="arrow-back" size={20} color={NEU.text} />
           </TouchableOpacity>
           <Text style={styles.title}>My Grades</Text>
-          <TouchableOpacity onPress={loadGrades} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
+          <TouchableOpacity onPress={loadGrades} style={styles.iconBtn}>
+            <Ionicons name="refresh" size={18} color={NEU.text} />
           </TouchableOpacity>
         </View>
 
-        {/* Student Info */}
         {studentInfo && (
           <View style={styles.infoCard}>
             <Text style={styles.infoName}>{studentInfo.full_name}</Text>
             <Text style={styles.infoDetails}>
               {studentInfo.grade_level}
               {studentInfo.strand !== 'N/A' ? ` • ${studentInfo.strand}` : ''}
-              {' • '}{studentInfo.section}
+              {' • '}
+              {studentInfo.section}
             </Text>
           </View>
         )}
 
-        {/* Average Card */}
         <View style={styles.averageCard}>
           <View style={[styles.averageIcon, { backgroundColor: getGradeColor(average) + '20' }]}>
-            <Ionicons name="star" size={32} color={getGradeColor(average)} />
+            <Ionicons name="star" size={28} color={getGradeColor(average)} />
           </View>
           <View style={styles.averageInfo}>
             <Text style={styles.averageLabel}>General Average</Text>
             <Text style={[styles.averageValue, { color: getGradeColor(average) }]}>
               {average || 'N/A'}
             </Text>
-            {average > 0 && (
-              <Text style={styles.averageRemarks}>{getGradeRemarks(average)}</Text>
-            )}
+            {average > 0 && <Text style={styles.averageRemarks}>{getGradeRemarks(average)}</Text>}
           </View>
         </View>
 
-        {/* Grades by Quarter */}
         {quarters.length > 0 ? (
           quarters.map((quarter) => (
             <View key={quarter} style={styles.quarterSection}>
               <View style={styles.quarterHeader}>
-                <Ionicons name="book" size={18} color={colors.primary} />
+                <Ionicons name="book" size={16} color={NEU.accent} />
                 <Text style={styles.quarterTitle}>{quarter}</Text>
                 <View style={styles.quarterBadge}>
                   <Text style={styles.quarterBadgeText}>
@@ -272,11 +263,14 @@ export default function StudentGrades() {
                         {grade.subject_code}
                         {grade.semester ? ` • ${grade.semester}` : ''}
                       </Text>
-                      {grade.remarks ? (
-                        <Text style={styles.gradeRemarks}>{grade.remarks}</Text>
-                      ) : null}
+                      {grade.remarks ? <Text style={styles.gradeRemarks}>{grade.remarks}</Text> : null}
                     </View>
-                    <View style={[styles.gradeBadge, { backgroundColor: getGradeColor(grade.grade) + '20' }]}>
+                    <View
+                      style={[
+                        styles.gradeBadge,
+                        { backgroundColor: getGradeColor(grade.grade) + '20' },
+                      ]}
+                    >
                       <Text style={[styles.gradeValue, { color: getGradeColor(grade.grade) }]}>
                         {grade.grade}
                       </Text>
@@ -287,7 +281,7 @@ export default function StudentGrades() {
           ))
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="star-outline" size={50} color="#ccc" />
+            <Ionicons name="star-outline" size={44} color={NEU.textFaint} />
             <Text style={styles.emptyText}>No grades available yet</Text>
             <Text style={styles.emptySubtext}>
               Your grades will appear here once your teachers submit them.
@@ -295,104 +289,122 @@ export default function StudentGrades() {
           </View>
         )}
       </ScrollView>
+
+      <ChatbotFab />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
+  safeArea: { flex: 1, backgroundColor: NEU.bg },
   container: { flex: 1, padding: spacing.md },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
+  loadingOrb: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    paddingTop: spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.md, paddingTop: spacing.md,
   },
-  backButton: { padding: spacing.sm },
-  refreshButton: { padding: spacing.sm },
-  title: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.text },
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.7, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  title: { fontSize: typography.sizes.lg, fontWeight: '700', color: NEU.text },
+
   infoCard: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
+    backgroundColor: NEU.bg, borderRadius: 20, padding: spacing.md,
     marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  infoName: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.text },
-  infoDetails: { fontSize: typography.sizes.sm, color: '#666', marginTop: 2 },
+  infoName: { fontSize: typography.sizes.md, fontWeight: '700', color: NEU.text },
+  infoDetails: { fontSize: typography.sizes.sm, color: NEU.textMuted, marginTop: 2 },
+
   averageCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: spacing.lg,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NEU.bg, borderRadius: 20, padding: spacing.lg,
     marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 14, elevation: 6,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   averageIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 60, height: 60, borderRadius: 30,
+    alignItems: 'center', justifyContent: 'center',
     marginRight: spacing.md,
   },
   averageInfo: { flex: 1 },
-  averageLabel: { fontSize: typography.sizes.sm, color: '#666' },
-  averageValue: { fontSize: 40, fontWeight: typography.weights.bold, marginTop: 4 },
-  averageRemarks: { fontSize: typography.sizes.xs, color: '#666', marginTop: 2 },
+  averageLabel: { fontSize: typography.sizes.sm, color: NEU.textMuted },
+  averageValue: { fontSize: 40, fontWeight: '800', marginTop: 4 },
+  averageRemarks: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
+
   quarterSection: { marginBottom: spacing.md },
   quarterHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: spacing.sm, gap: spacing.sm,
   },
-  quarterTitle: { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.text, flex: 1 },
+  quarterTitle: { fontSize: typography.sizes.md, fontWeight: '700', color: NEU.text, flex: 1 },
   quarterBadge: {
-    backgroundColor: colors.primary + '10',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 12,
+    backgroundColor: NEU.bg,
+    paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 3, elevation: 1,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
-  quarterBadgeText: { fontSize: typography.sizes.xs, color: colors.primary, fontWeight: typography.weights.medium },
+  quarterBadgeText: { fontSize: typography.sizes.xs, color: NEU.accent, fontWeight: '700' },
+
   gradeItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 10,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NEU.bg, borderRadius: 16, padding: spacing.md,
+    marginBottom: spacing.sm,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
   },
   gradeInfo: { flex: 1 },
-  gradeSubject: { fontSize: typography.sizes.sm, fontWeight: typography.weights.medium, color: colors.text },
-  gradeCode: { fontSize: typography.sizes.xs, color: '#666', marginTop: 2 },
-  gradeRemarks: { fontSize: typography.sizes.xs, color: '#999', marginTop: 2, fontStyle: 'italic' },
-  gradeBadge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
+  gradeSubject: { fontSize: typography.sizes.sm, fontWeight: '600', color: NEU.text },
+  gradeCode: { fontSize: typography.sizes.xs, color: NEU.textMuted, marginTop: 2 },
+  gradeRemarks: {
+    fontSize: typography.sizes.xs, color: NEU.textFaint,
+    marginTop: 2, fontStyle: 'italic',
   },
-  gradeValue: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold },
-  emptyContainer: { alignItems: 'center', padding: spacing.xxxl, backgroundColor: colors.white, borderRadius: 16 },
-  emptyText: { fontSize: typography.sizes.md, color: '#999', marginTop: spacing.md },
-  emptySubtext: { fontSize: typography.sizes.sm, color: '#ccc', textAlign: 'center', marginTop: spacing.xs },
+  gradeBadge: {
+    width: 50, height: 50, borderRadius: 25,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  gradeValue: { fontSize: typography.sizes.lg, fontWeight: '800' },
+
+  emptyContainer: {
+    alignItems: 'center', padding: spacing.xxxl,
+    backgroundColor: NEU.bg, borderRadius: 20,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  emptyText: {
+    fontSize: typography.sizes.md, color: NEU.textMuted,
+    marginTop: spacing.md, fontWeight: '600',
+  },
+  emptySubtext: {
+    fontSize: typography.sizes.sm, color: NEU.textFaint,
+    textAlign: 'center', marginTop: spacing.xs,
+  },
 });

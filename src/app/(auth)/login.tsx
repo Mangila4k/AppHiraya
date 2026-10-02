@@ -6,6 +6,7 @@ import { Href, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,10 +14,30 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
+// ============================================================
+// 🔽 YOUR LOGO IS HERE 🔽
+// The logo is imported from assets/images/logo.jpg
+// (Make sure @assets/* is mapped in tsconfig.json — see note above)
+// ============================================================
+import SchoolLogo from '@assets/images/logo.jpg';
+
 type UserRole = 'admin' | 'registrar' | 'teacher' | 'student' | 'parent';
+
+// ===== Neumorphic palette =====
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+  danger: '#EF4444',
+};
 
 export default function Login() {
   const router = useRouter();
@@ -47,14 +68,11 @@ export default function Login() {
         password: trimmedPassword,
       });
 
-      // If Supabase Auth works, use it
       if (!error && data?.user) {
         console.log('✅ Auth login successful for:', data.user.email);
-        
-        // Save user email to AsyncStorage
+
         await AsyncStorage.setItem('userEmail', trimmedEmail);
-        console.log('✅ User email saved to storage');
-        
+
         const role = data.user.user_metadata?.role || 'student';
         const validRoles: UserRole[] = ['admin', 'registrar', 'teacher', 'student', 'parent'];
         const validRole = validRoles.includes(role as UserRole) ? (role as UserRole) : 'student';
@@ -65,7 +83,7 @@ export default function Login() {
 
       // ============ STEP 2: If Auth fails, check custom users table ============
       console.log('⚠️ Auth failed, checking custom users table...');
-      
+
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -80,9 +98,6 @@ export default function Login() {
       }
 
       // ============ STEP 3: Check password in custom table ============
-      console.log('✅ User found in custom table:', userData.email);
-      
-      // Check if password matches
       if (userData.password !== trimmedPassword) {
         console.log('❌ Password mismatch for:', trimmedEmail);
         setErrorMessage('❌ Invalid password. Please try again.');
@@ -92,19 +107,15 @@ export default function Login() {
 
       // ============ STEP 4: Login successful via custom table ============
       console.log('✅ Custom login successful for:', trimmedEmail);
-      
-      // Save user email to AsyncStorage
+
       await AsyncStorage.setItem('userEmail', trimmedEmail);
-      console.log('✅ User email saved to storage');
-      
-      // Get role from custom table
+
       const role = userData.role || 'student';
       const validRoles: UserRole[] = ['admin', 'registrar', 'teacher', 'student', 'parent'];
       const validRole = validRoles.includes(role as UserRole) ? (role as UserRole) : 'student';
-      
-      // Redirect to the appropriate dashboard
+
       router.replace(`/(dashboard)/${validRole}` as Href);
-      
+
     } catch (error: any) {
       console.error('❌ Unexpected error:', error);
       setErrorMessage('An unexpected error occurred. Please try again.');
@@ -118,28 +129,29 @@ export default function Login() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.loginCard}>
-          {/* Logo */}
+          {/* ===== LOGO + SCHOOL NAME ===== */}
           <View style={styles.logoSection}>
             <View style={styles.schoolLogo}>
-              <Text style={styles.schoolLogoText}>PLS</Text>
+              <Image source={SchoolLogo} style={styles.schoolLogoImage} />
             </View>
             <View style={styles.schoolName}>
-              <Text style={styles.schoolNameTitle}>Placido L. Señor</Text>
-              <Text style={styles.schoolNameSub}>National High School</Text>
+              <Text style={styles.schoolNameTitle}>HES</Text>
+              <Text style={styles.schoolNameSub}>Hiraya Enrollment System</Text>
             </View>
           </View>
 
-          <Text style={styles.welcomeTitle}>
-            Welcome <Text style={styles.highlight}>Back</Text>
-          </Text>
+          <Text style={styles.welcomeTitle}>Welcome Back</Text>
           <Text style={styles.welcomeSub}>Login to your account to continue</Text>
 
-          {/* Error Message Display */}
+          {/* Error Message */}
           {errorMessage ? (
             <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Ionicons name="alert-circle" size={18} color={NEU.danger} />
               <Text style={styles.errorText}>{errorMessage}</Text>
             </View>
           ) : null}
@@ -147,36 +159,47 @@ export default function Login() {
           {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email Address <Text style={styles.required}>*</Text></Text>
+              <Text style={styles.label}>Email Address</Text>
               <View style={styles.inputWrapper}>
+                <Ionicons
+                  name="mail-outline"
+                  size={18}
+                  color={NEU.textMuted}
+                  style={styles.inputIconLeft}
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your email address"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={NEU.textFaint}
                   value={email}
                   onChangeText={(text) => {
                     setEmail(text);
-                    setErrorMessage(''); // Clear error when user types
+                    setErrorMessage('');
                   }}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoCorrect={false}
                 />
-                <Ionicons name="mail" size={20} color="#999" style={styles.inputIcon} />
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password <Text style={styles.required}>*</Text></Text>
+              <Text style={styles.label}>Password</Text>
               <View style={styles.inputWrapper}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color={NEU.textMuted}
+                  style={styles.inputIconLeft}
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your password"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={NEU.textFaint}
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);
-                    setErrorMessage(''); // Clear error when user types
+                    setErrorMessage('');
                   }}
                   secureTextEntry={!showPassword}
                   autoCorrect={false}
@@ -185,43 +208,46 @@ export default function Login() {
                   style={styles.togglePassword}
                   onPress={() => setShowPassword(!showPassword)}
                 >
-                  <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color="#999" />
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={18}
+                    color={NEU.textMuted}
+                  />
                 </TouchableOpacity>
               </View>
             </View>
 
-            <TouchableOpacity
-              style={styles.forgotPassword}
-              onPress={() => router.push('/(auth)/forgot-password')}
-            >
-              <Ionicons name="key" size={14} color={colors.primary} />
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
+            <View style={styles.rowBetween}>
+              <View style={styles.rememberMe}>
+                <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() => setRememberMe(!rememberMe)}
+                >
+                  {rememberMe && (
+                    <Ionicons name="checkmark" size={12} color={NEU.accent} />
+                  )}
+                </TouchableOpacity>
+                <Text style={styles.rememberMeText}>Remember me</Text>
+              </View>
 
-            <View style={styles.rememberMe}>
               <TouchableOpacity
-                style={styles.checkbox}
-                onPress={() => setRememberMe(!rememberMe)}
+                style={styles.forgotPassword}
+                onPress={() => router.push('/(auth)/forgot-password')}
               >
-                {rememberMe && (
-                  <Ionicons name="checkmark" size={16} color={colors.primary} />
-                )}
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
-              <Text style={styles.rememberMeText}>Remember me</Text>
             </View>
 
             <TouchableOpacity
               style={styles.loginButton}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={NEU.accent} />
               ) : (
-                <>
-                  <Ionicons name="log-in" size={20} color="#fff" />
-                  <Text style={styles.loginButtonText}>LOGIN</Text>
-                </>
+                <Text style={styles.loginButtonText}>Login</Text>
               )}
             </TouchableOpacity>
 
@@ -236,7 +262,7 @@ export default function Login() {
               style={styles.backHome}
               onPress={() => router.push('/(tabs)/home')}
             >
-              <Ionicons name="arrow-back" size={16} color={colors.textSecondary} />
+              <Ionicons name="arrow-back" size={14} color={NEU.textMuted} />
               <Text style={styles.backHomeText}>Back to Home</Text>
             </TouchableOpacity>
           </View>
@@ -249,23 +275,31 @@ export default function Login() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: NEU.bg,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: spacing.lg,
   },
+
+  // ===== Login card (large raised neumorphic panel) =====
   loginCard: {
-    backgroundColor: colors.white,
-    borderRadius: 20,
+    backgroundColor: NEU.bg,
+    borderRadius: 28,
     padding: spacing.xl,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 8, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 18,
     elevation: 8,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow,
+    borderLeftColor: NEU.lightShadow,
   },
+
+  // ===== Logo Section =====
   logoSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -274,59 +308,87 @@ const styles = StyleSheet.create({
   schoolLogo: {
     width: 56,
     height: 56,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
+    overflow: 'hidden',
+    backgroundColor: NEU.bg,
+    // inset circle — logo sits carved into the card
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 2,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
-  schoolLogoText: {
-    color: colors.white,
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
+  schoolLogoImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
   },
   schoolName: {
     flex: 1,
   },
   schoolNameTitle: {
     fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
+    fontWeight: '800',
+    color: NEU.text,
+    letterSpacing: -0.3,
   },
   schoolNameSub: {
     fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
+    color: NEU.textMuted,
+    marginTop: 2,
   },
+
+  // ===== Welcome Text =====
   welcomeTitle: {
     fontSize: typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
+    fontWeight: '800',
+    color: NEU.text,
     marginBottom: spacing.xs,
-  },
-  highlight: {
-    color: colors.primary,
+    textAlign: 'center',
+    letterSpacing: -0.5,
   },
   welcomeSub: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
+    color: NEU.textMuted,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
   },
+
+  // ===== Error =====
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: spacing.md,
     marginBottom: spacing.md,
     gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
+    backgroundColor: NEU.bg,
+    // inset pill
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 2,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
   errorText: {
     flex: 1,
     fontSize: typography.sizes.sm,
-    color: '#991B1B',
+    color: NEU.danger,
+    fontWeight: '600',
   },
+
+  // ===== Form =====
   form: {
     gap: spacing.md,
   },
@@ -335,42 +397,49 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
-  },
-  required: {
-    color: colors.error,
+    fontWeight: '600',
+    color: NEU.text,
+    paddingLeft: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.gray,
+    borderRadius: 14,
+    paddingHorizontal: spacing.md,
+    backgroundColor: NEU.bg,
+    // inset field
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.55,
+    shadowRadius: 6,
+    elevation: 2,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.5)',
+    borderLeftColor: 'rgba(163,177,198,0.5)',
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    borderBottomColor: NEU.lightShadow,
+    borderRightColor: NEU.lightShadow,
+  },
+  inputIconLeft: {
+    marginRight: spacing.sm,
   },
   input: {
     flex: 1,
-    padding: spacing.md,
+    paddingVertical: spacing.md,
     fontSize: typography.sizes.sm,
-    color: colors.text,
-  },
-  inputIcon: {
-    paddingHorizontal: spacing.md,
+    color: NEU.text,
   },
   togglePassword: {
-    paddingHorizontal: spacing.md,
+    padding: spacing.xs,
   },
-  forgotPassword: {
+
+  // ===== Row with Remember Me & Forgot Password =====
+  rowBetween: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    alignSelf: 'flex-end',
-    gap: spacing.xs,
-  },
-  forgotPasswordText: {
-    fontSize: typography.sizes.xs,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
   },
   rememberMe: {
     flexDirection: 'row',
@@ -378,54 +447,91 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    // inset checkbox
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 1,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.5)',
+    borderLeftColor: 'rgba(163,177,198,0.5)',
   },
   rememberMeText: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
+    color: NEU.textMuted,
   },
+  forgotPassword: {
+    paddingVertical: spacing.xs,
+  },
+  forgotPasswordText: {
+    fontSize: typography.sizes.xs,
+    color: NEU.accent,
+    fontWeight: '700',
+  },
+
+  // ===== Login Button (raised neumorphic) =====
   loginButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
-    padding: spacing.md,
-    borderRadius: 10,
+    backgroundColor: NEU.bg,
+    paddingVertical: spacing.md,
+    borderRadius: 16,
     gap: spacing.sm,
+    marginTop: spacing.xs,
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 6,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow,
+    borderLeftColor: NEU.lightShadow,
   },
   loginButtonText: {
-    color: colors.white,
+    color: NEU.accent,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
+
+  // ===== Signup Link =====
   signupLink: {
     flexDirection: 'row',
     justifyContent: 'center',
     flexWrap: 'wrap',
+    marginTop: spacing.xs,
   },
   signupText: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
+    color: NEU.textMuted,
   },
   signupLinkText: {
     fontSize: typography.sizes.sm,
-    color: colors.primary,
-    fontWeight: typography.weights.semibold,
+    color: NEU.accent,
+    fontWeight: '700',
   },
+
+  // ===== Back Home =====
   backHome: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
+    marginTop: spacing.xs,
   },
   backHomeText: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
+    color: NEU.textMuted,
+    fontWeight: '500',
   },
 });

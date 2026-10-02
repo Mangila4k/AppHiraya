@@ -1,44 +1,64 @@
 {
   "expo": {
-    "name": "PLS NHS Enrollment System",
-    "slug": "plsnhs-enrollment",
+    "name": "Hiraya Enrollment System",
+    "slug": "hiraya-enrollment",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "plsnhs",
+    "icon": "./assets/images/logo.jpg",
+    "scheme": "hiraya",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/images/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0B2A4A"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.plsnhs.enrollment"
+      "bundleIdentifier": "com.plsnhs.enrollment",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Hiraya Enrollment System uses your location to verify you are within the school premises when recording attendance.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/logo.jpg",
         "backgroundColor": "#0B2A4A"
       },
-      "package": "com.plsnhs.enrollment"
+      "package": "com.plsnhs.enrollment",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/logo.jpg"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Hiraya Enrollment System to use your location to verify attendance.",
+          "locationWhenInUsePermission": "Allow Hiraya Enrollment System to use your location to verify attendance.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
+      "expo-image",
+      "expo-splash-screen",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "supabaseUrl": "https://tuujlqrfyuazvbvoribz.supabase.co",
-      "supabaseAnonKey": "sb_publishable_dYaVB2zNcNNj5gwjzJ4ZRw_N55Djq0D"
+      "supabaseAnonKey": "sb_publishable_dYaVB2zNcNNj5gwjzJ4ZRw_N55Djq0D",
+      "router": {},
+      "eas": {
+        "projectId": "3595ece9-dff7-436b-95fd-171e2622a322"
+      }
     }
   }
 }

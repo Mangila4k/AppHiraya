@@ -1,14 +1,25 @@
+import NotificationBell from '@/components/NotificationBell';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
-const isSmallScreen = width < 380;
+const DRAWER_WIDTH = Math.min(width * 0.78, 320);
 
 type StudentInfo = {
   id: string;
@@ -32,6 +43,18 @@ type Stats = {
   daysAbsent: number;
 };
 
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+  danger: '#EF4444',
+};
+
 export default function StudentDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -44,6 +67,26 @@ export default function StudentDashboard() {
     daysAbsent: 0,
   });
 
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const slideAnim = useState(new Animated.Value(-DRAWER_WIDTH))[0];
+
+  const openDrawer = () => {
+    setDrawerOpen(true);
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeDrawer = () => {
+    Animated.timing(slideAnim, {
+      toValue: -DRAWER_WIDTH,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => setDrawerOpen(false));
+  };
+
   useEffect(() => {
     loadStudentData();
   }, []);
@@ -51,14 +94,12 @@ export default function StudentDashboard() {
   const loadStudentData = async () => {
     setLoading(true);
     try {
-      // 1. Get logged-in user email
       const email = await AsyncStorage.getItem('userEmail');
       if (!email) {
         setLoading(false);
         return;
       }
 
-      // 2. Get user record (to access student_id FK)
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -66,28 +107,18 @@ export default function StudentDashboard() {
         .single();
 
       if (userError || !userData) {
-        console.error('User not found:', userError);
         setLoading(false);
         return;
       }
 
-      // 3. Get student record via users.student_id → students.id
       let studentData: any = null;
 
       if (userData.student_id) {
         const { data } = await supabase
           .from('students')
           .select(`
-            id,
-            lrn,
-            first_name,
-            last_name,
-            middle_name,
-            suffix,
-            grade_level,
-            strand,
-            section_id,
-            documents_status,
+            id, lrn, first_name, last_name, middle_name, suffix,
+            grade_level, strand, section_id, documents_status,
             sections:section_id (name)
           `)
           .eq('id', userData.student_id)
@@ -95,21 +126,12 @@ export default function StudentDashboard() {
         studentData = data;
       }
 
-      // Fallback: match by email
       if (!studentData) {
         const { data } = await supabase
           .from('students')
           .select(`
-            id,
-            lrn,
-            first_name,
-            last_name,
-            middle_name,
-            suffix,
-            grade_level,
-            strand,
-            section_id,
-            documents_status,
+            id, lrn, first_name, last_name, middle_name, suffix,
+            grade_level, strand, section_id, documents_status,
             sections:section_id (name)
           `)
           .eq('email', email)
@@ -118,21 +140,26 @@ export default function StudentDashboard() {
       }
 
       if (!studentData) {
-        console.log('No student record found');
         setLoading(false);
         return;
       }
 
-      // 4. Determine enrollment status
       let enrollmentStatus = 'Not Enrolled';
       if (studentData.documents_status === 'complete') enrollmentStatus = 'Enrolled';
       else if (studentData.documents_status === 'Pending') enrollmentStatus = 'Pending';
       else if (studentData.documents_status) enrollmentStatus = studentData.documents_status;
 
-      // 5. Build full name
-      const middle = studentData.middle_name ? ` ${studentData.middle_name.charAt(0)}.` : '';
+      const middle = studentData.middle_name
+        ? ` ${studentData.middle_name.charAt(0)}.`
+        : '';
       const suffix = studentData.suffix ? ` ${studentData.suffix}` : '';
-      const fullName = `${studentData.first_name || ''}${middle} ${studentData.last_name || ''}${suffix}`.trim() || 'Student';
+      const fullName =
+        `${studentData.first_name || ''}${middle} ${studentData.last_name || ''}${suffix}`.trim() ||
+        'Student';
+
+      const sectionRel = Array.isArray(studentData.sections)
+        ? studentData.sections[0]
+        : studentData.sections;
 
       setStudent({
         id: studentData.id,
@@ -142,13 +169,12 @@ export default function StudentDashboard() {
         full_name: fullName,
         grade_level: studentData.grade_level || 'N/A',
         strand: studentData.strand || 'N/A',
-        section_name: studentData.sections?.name || 'No Section',
+        section_name: sectionRel?.name || 'No Section',
         section_id: studentData.section_id || '',
         documents_status: studentData.documents_status || 'N/A',
         enrollment_status: enrollmentStatus,
       });
 
-      // 6. Get average grade from grades table
       const { data: gradesData } = await supabase
         .from('grades')
         .select('grade')
@@ -160,7 +186,6 @@ export default function StudentDashboard() {
         avgGrade = Math.round((sum / gradesData.length) * 100) / 100;
       }
 
-      // 7. Get subject count for this grade level & strand
       const gradeNum = parseInt(studentData.grade_level);
       const isSeniorHigh = gradeNum >= 11;
 
@@ -175,7 +200,6 @@ export default function StudentDashboard() {
 
       const { count: subjectsCount } = await subjectsQuery;
 
-      // 8. Get attendance summary
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select('status')
@@ -184,17 +208,19 @@ export default function StudentDashboard() {
       let presentCount = 0;
       let absentCount = 0;
       let lateCount = 0;
+
       if (attendanceData) {
         attendanceData.forEach((a: any) => {
-          if (a.status === 'Present') presentCount++;
-          if (a.status === 'Absent') absentCount++;
-          if (a.status === 'Late') lateCount++;
+          const s = String(a.status || '').toLowerCase();
+          if (s === 'present') presentCount++;
+          if (s === 'absent') absentCount++;
+          if (s === 'late') lateCount++;
         });
       }
+
       const totalDays = presentCount + absentCount + lateCount;
-      const attendanceRate = totalDays > 0
-        ? Math.round(((presentCount + lateCount) / totalDays) * 100)
-        : 0;
+      const attendanceRate =
+        totalDays > 0 ? Math.round(((presentCount + lateCount) / totalDays) * 100) : 0;
 
       setStats({
         averageGrade: avgGrade,
@@ -210,30 +236,40 @@ export default function StudentDashboard() {
     }
   };
 
-  const StatCard = ({ title, value, icon, color, onPress, suffix }: any) => (
-    <TouchableOpacity style={[styles.statCard, { borderLeftColor: color }]} onPress={onPress}>
-      <View style={styles.statHeader}>
-        <Text style={styles.statTitle} numberOfLines={1}>{title}</Text>
-        <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
-          <Ionicons name={icon} size={isSmallScreen ? 16 : 20} color={color} />
-        </View>
+  const StatCard = ({ title, value, icon, onPress, suffix }: any) => (
+    <TouchableOpacity style={styles.statCard} onPress={onPress} activeOpacity={0.85}>
+      <View style={styles.statIconWrap}>
+        <Ionicons name={icon} size={18} color={NEU.accent} />
       </View>
       <Text style={styles.statNumber}>
-        {value}{suffix || ''}
+        {value}
+        {suffix || ''}
+      </Text>
+      <Text style={styles.statTitle} numberOfLines={1}>
+        {title}
       </Text>
     </TouchableOpacity>
   );
 
-  const ActionCard = ({ title, subtitle, icon, onPress }: any) => (
-    <TouchableOpacity style={styles.actionCard} onPress={onPress}>
-      <View style={styles.actionIcon}>
-        <Ionicons name={icon} size={isSmallScreen ? 20 : 24} color={colors.primary} />
+  const DrawerItem = ({ icon, title, onPress, badge }: any) => (
+    <TouchableOpacity
+      style={styles.drawerItem}
+      onPress={() => {
+        closeDrawer();
+        setTimeout(() => onPress?.(), 220);
+      }}
+      activeOpacity={0.7}
+    >
+      <View style={styles.drawerItemIcon}>
+        <Ionicons name={icon} size={18} color={NEU.accent} />
       </View>
-      <View style={styles.actionInfo}>
-        <Text style={styles.actionTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.actionSubtitle} numberOfLines={1}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="#ccc" />
+      <Text style={styles.drawerItemTitle}>{title}</Text>
+      {badge ? (
+        <View style={styles.drawerBadge}>
+          <Text style={styles.drawerBadgeText}>{badge > 9 ? '9+' : badge}</Text>
+        </View>
+      ) : null}
+      <Ionicons name="chevron-forward" size={16} color={NEU.textFaint} />
     </TouchableOpacity>
   );
 
@@ -241,8 +277,9 @@ export default function StudentDashboard() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
+          <View style={styles.loadingOrb}>
+            <ActivityIndicator size="small" color={NEU.accent} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -250,298 +287,375 @@ export default function StudentDashboard() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Enrolled': return '#4CAF50';
-      case 'Pending': return '#FF9800';
-      case 'Rejected': return '#F44336';
-      default: return '#999';
+      case 'Enrolled':
+        return '#22C55E';
+      case 'Pending':
+        return '#F59E0B';
+      case 'Rejected':
+        return '#EF4444';
+      default:
+        return NEU.textMuted;
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ===== HEADER ===== */}
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>
-              Hello, {student?.first_name || 'Student'}!
-            </Text>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={openDrawer}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="menu-outline" size={22} color={NEU.text} />
+          </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.greeting}>{student?.first_name || 'Student'}</Text>
             <Text style={styles.subGreeting}>
-              {student?.grade_level && student.grade_level !== 'N/A' ? student.grade_level : ''}
-{student?.strand && student.strand !== 'N/A' ? ` • ${student.strand}` : ''}
+              {student?.grade_level && student.grade_level !== 'N/A'
+                ? student.grade_level
+                : ''}
+              {student?.strand && student.strand !== 'N/A'
+                ? ` · ${student.strand}`
+                : ''}
             </Text>
           </View>
-          <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/student/profile')}>
-            <Ionicons name="person-circle" size={36} color={colors.primary} />
-          </TouchableOpacity>
+
+          <View style={styles.headerRight}>
+            <NotificationBell iconColor={NEU.text} />
+
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push('/student/profile')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-outline" size={20} color={NEU.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Student Info Card */}
+        {/* Info card */}
         {student && (
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
-              <Ionicons name="person" size={18} color={colors.primary} />
               <Text style={styles.infoLabel}>Name</Text>
-              <Text style={styles.infoValue}>{student.full_name}</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {student.full_name}
+              </Text>
             </View>
+            <View style={styles.divider} />
             <View style={styles.infoRow}>
-              <Ionicons name="card" size={18} color={colors.primary} />
               <Text style={styles.infoLabel}>LRN</Text>
               <Text style={styles.infoValue}>{student.lrn}</Text>
             </View>
+            <View style={styles.divider} />
             <View style={styles.infoRow}>
-              <Ionicons name="school" size={18} color={colors.primary} />
               <Text style={styles.infoLabel}>Section</Text>
-              <Text style={styles.infoValue}>{student.section_name}</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {student.section_name}
+              </Text>
             </View>
+            <View style={styles.divider} />
             <View style={styles.infoRow}>
-              <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
               <Text style={styles.infoLabel}>Status</Text>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(student.enrollment_status) + '20' }]}>
-                <Text style={[styles.statusText, { color: getStatusColor(student.enrollment_status) }]}>
-                  {student.enrollment_status}
-                </Text>
+              <View style={styles.statusRow}>
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: getStatusColor(student.enrollment_status) },
+                  ]}
+                />
+                <Text style={styles.statusText}>{student.enrollment_status}</Text>
               </View>
             </View>
           </View>
         )}
 
-        {/* Quick Stats */}
+        {/* Stats */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="stats-chart" size={18} color={colors.primary} /> My Stats
-          </Text>
+          <Text style={styles.sectionLabel}>Overview</Text>
           <View style={styles.statsGrid}>
             <StatCard
-              title="Average Grade"
-              value={stats.averageGrade !== null ? stats.averageGrade : 'N/A'}
-              icon="star"
-              color="#FF9800"
+              title="Average"
+              value={stats.averageGrade !== null ? stats.averageGrade : '—'}
+              icon="star-outline"
               onPress={() => router.push('/student/grades')}
             />
             <StatCard
               title="Attendance"
               value={stats.attendanceRate}
               suffix="%"
-              icon="calendar"
-              color="#4CAF50"
+              icon="calendar-outline"
               onPress={() => router.push('/student/attendance')}
             />
             <StatCard
               title="Subjects"
               value={stats.totalSubjects}
-              icon="book"
-              color="#9C27B0"
+              icon="book-outline"
               onPress={() => router.push('/student/schedule')}
             />
             <StatCard
-              title="Days Present"
+              title="Present"
               value={stats.daysPresent}
-              icon="checkmark-done"
-              color="#2196F3"
+              icon="checkmark-outline"
               onPress={() => router.push('/student/attendance')}
             />
           </View>
         </View>
+      </ScrollView>
 
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            <Ionicons name="flash" size={18} color={colors.primary} /> Quick Actions
-          </Text>
-          <View style={styles.actionsGrid}>
-            <ActionCard
-              title="My Grades"
-              subtitle="View your grades per subject"
-              icon="star"
+      {/* ===== Drawer ===== */}
+      <Modal
+        visible={drawerOpen}
+        transparent
+        animationType="none"
+        onRequestClose={closeDrawer}
+      >
+        <TouchableWithoutFeedback onPress={closeDrawer}>
+          <View style={styles.drawerOverlay} />
+        </TouchableWithoutFeedback>
+
+        <Animated.View
+          style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}
+        >
+          <View style={styles.drawerHeader}>
+            <Text style={styles.drawerName} numberOfLines={1}>
+              {student?.full_name || 'Student'}
+            </Text>
+            <Text style={styles.drawerSub} numberOfLines={1}>
+              {student?.grade_level && student.grade_level !== 'N/A'
+                ? student.grade_level
+                : ''}
+              {student?.strand && student.strand !== 'N/A'
+                ? ` · ${student.strand}`
+                : ''}
+            </Text>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <DrawerItem
+              icon="sparkles-outline"
+              title="AI Assistant"
+              onPress={() => router.push('/student/chatbot' as any)}
+            />
+            <DrawerItem
+              icon="star-outline"
+              title="Grades"
               onPress={() => router.push('/student/grades')}
             />
-            <ActionCard
-              title="My Attendance"
-              subtitle="View attendance record"
-              icon="calendar"
+            <DrawerItem
+              icon="calendar-outline"
+              title="Attendance"
               onPress={() => router.push('/student/attendance')}
             />
-            <ActionCard
-              title="My Schedule"
-              subtitle="View class schedule"
-              icon="time"
+            <DrawerItem
+              icon="time-outline"
+              title="Schedule"
               onPress={() => router.push('/student/schedule')}
             />
-            <ActionCard
-              title="My Section"
-              subtitle="View section info & classmates"
-              icon="people"
+            <DrawerItem
+              icon="people-outline"
+              title="Section"
               onPress={() => router.push('/student/section')}
             />
-            <ActionCard
-              title="My Profile"
-              subtitle="View and edit your profile"
-              icon="person"
+            <DrawerItem
+              icon="person-outline"
+              title="Profile"
               onPress={() => router.push('/student/profile')}
             />
-          </View>
-        </View>
+          </ScrollView>
 
-        <TouchableOpacity
-          style={styles.bottomProfileBtn}
-          onPress={() => router.push('/student/profile')}
-        >
-          <Ionicons name="person-circle" size={24} color={colors.white} />
-          <Text style={styles.bottomProfileText}>My Profile</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <TouchableOpacity
+            style={styles.drawerLogout}
+            onPress={() => {
+              closeDrawer();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={18} color={NEU.textMuted} />
+            <Text style={styles.drawerLogoutText}>Sign out</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f5f5' },
-  container: { flex: 1, padding: spacing.md },
+  safeArea: { flex: 1, backgroundColor: NEU.bg },
+  container: { flex: 1 },
+  contentContainer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: spacing.md, fontSize: typography.sizes.md, color: '#666' },
+  loadingOrb: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.lightShadow, shadowOffset: { width: -4, height: -4 },
+    shadowOpacity: 1, shadowRadius: 8, elevation: 6,
+  },
+
   header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-    paddingTop: spacing.md,
+    paddingVertical: 20,
   },
-  headerLeft: { flex: 1, marginRight: spacing.sm },
-  greeting: {
-    fontSize: isSmallScreen ? typography.sizes.lg : typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-  },
-  subGreeting: { fontSize: typography.sizes.sm, color: '#666', marginTop: 2 },
-  profileBtn: {
-    padding: spacing.xs,
-    backgroundColor: colors.white,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  infoCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.xs,
-    gap: spacing.sm,
-  },
-  infoLabel: { fontSize: typography.sizes.sm, color: '#666', width: 70 },
-  infoValue: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.text,
-    flex: 1,
-  },
-  statusBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12 },
-  statusText: { fontSize: typography.sizes.xs, fontWeight: typography.weights.medium },
-  section: { marginBottom: spacing.lg },
-  sectionTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    width: '48%',
-    marginBottom: spacing.sm,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statTitle: {
-    fontSize: typography.sizes.xs,
-    color: '#666',
-    fontWeight: typography.weights.medium,
-    flex: 1,
-  },
-  statIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: spacing.xs,
-  },
-  statNumber: {
-    fontSize: isSmallScreen ? typography.sizes.xl : typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
-    marginTop: 4,
-  },
-  actionsGrid: { gap: spacing.sm },
-  actionCard: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  actionIcon: {
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerRight: { flexDirection: 'row', gap: 8 },
+  iconBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.primary + '10',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  actionInfo: { flex: 1 },
-  actionTitle: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.semibold,
-    color: colors.text,
-  },
-  actionSubtitle: { fontSize: typography.sizes.xs, color: '#666' },
-  bottomProfileBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: 'rgba(163,177,198,0.4)',
+    borderBottomColor: 'rgba(163,177,198,0.4)',
   },
-  bottomProfileText: {
-    color: colors.white,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
+  greeting: {
+    fontSize: 16, fontWeight: '700',
+    color: NEU.text, letterSpacing: -0.2,
+  },
+  subGreeting: {
+    fontSize: 12, color: NEU.textMuted,
+    marginTop: 2, letterSpacing: 0.2,
+  },
+
+  infoCard: {
+    paddingVertical: 8, paddingHorizontal: 20, marginBottom: 28,
+    borderRadius: 20, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.7, shadowRadius: 14, elevation: 6,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  infoRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', paddingVertical: 14,
+  },
+  infoLabel: { fontSize: 13, color: NEU.textMuted, letterSpacing: 0.3 },
+  infoValue: {
+    fontSize: 13, fontWeight: '600', color: NEU.text,
+    flex: 1, textAlign: 'right', marginLeft: 16,
+  },
+  divider: { height: 1, backgroundColor: NEU.bgDark, opacity: 0.5 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontSize: 13, fontWeight: '600', color: NEU.text },
+
+  section: { marginBottom: 24 },
+  sectionLabel: {
+    fontSize: 11, fontWeight: '700', color: NEU.textFaint,
+    letterSpacing: 1.2, textTransform: 'uppercase',
+    marginBottom: 16, paddingHorizontal: 4,
+  },
+  statsGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    justifyContent: 'space-between', gap: 16,
+  },
+  statCard: {
+    width: '47%', paddingVertical: 20, paddingHorizontal: 16,
+    borderRadius: 20, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 0.6, shadowRadius: 12, elevation: 5,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  statIconWrap: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg, marginBottom: 12,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: NEU.lightShadow, borderBottomColor: NEU.lightShadow,
+  },
+  statNumber: {
+    fontSize: 26, fontWeight: '800',
+    color: NEU.text, letterSpacing: -0.5,
+  },
+  statTitle: {
+    fontSize: 12, color: NEU.textMuted,
+    letterSpacing: 0.3, marginTop: 4, fontWeight: '500',
+  },
+
+  drawerOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(46,58,77,0.35)',
+  },
+  drawer: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, width: DRAWER_WIDTH,
+    backgroundColor: NEU.bg, paddingTop: 72, paddingHorizontal: 24,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.6, shadowRadius: 20, elevation: 12,
+    borderRightWidth: 1, borderRightColor: NEU.lightShadow,
+  },
+  drawerHeader: {
+    paddingBottom: 24, borderBottomWidth: 1,
+    borderBottomColor: NEU.bgDark, marginBottom: 16,
+  },
+  drawerName: {
+    fontSize: 15, fontWeight: '700',
+    color: NEU.text, letterSpacing: -0.2,
+  },
+  drawerSub: {
+    fontSize: 12, color: NEU.textMuted,
+    marginTop: 4, letterSpacing: 0.2,
+  },
+  drawerItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14,
+    marginBottom: 8, gap: 14, backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.4, shadowRadius: 6, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow, borderLeftColor: NEU.lightShadow,
+  },
+  drawerItemIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: NEU.bg,
+    shadowColor: NEU.darkShadow, shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4, elevation: 2,
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
+    borderRightWidth: 1, borderBottomWidth: 1,
+    borderRightColor: NEU.lightShadow, borderBottomColor: NEU.lightShadow,
+  },
+  drawerItemTitle: {
+    fontSize: 14, color: NEU.text, fontWeight: '600',
+    letterSpacing: 0.1, flex: 1,
+  },
+  drawerBadge: {
+    backgroundColor: NEU.danger,
+    borderRadius: 10, minWidth: 20, height: 20,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 6, marginRight: 4,
+  },
+  drawerBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+
+  drawerLogout: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 16, borderTopWidth: 1,
+    borderTopColor: NEU.bgDark, gap: 8,
+  },
+  drawerLogoutText: {
+    color: NEU.textMuted, fontSize: 13,
+    fontWeight: '600', letterSpacing: 0.2,
   },
 });

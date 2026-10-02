@@ -1,20 +1,33 @@
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, typography } from '@/styles';
+import { spacing, typography } from '@/styles';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+
+// ===== Neumorphic palette =====
+const NEU = {
+  bg: '#E8EDF2',
+  bgDark: '#D1D9E6',
+  lightShadow: '#FFFFFF',
+  darkShadow: '#A3B1C6',
+  text: '#2E3A4D',
+  textMuted: '#7A8699',
+  textFaint: '#A0ACBE',
+  accent: '#4C6FFF',
+  danger: '#EF4444',
+};
 
 export default function ForgotPassword() {
   const router = useRouter();
@@ -54,10 +67,14 @@ export default function ForgotPassword() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.card}>
+          {/* Inset icon circle */}
           <View style={styles.iconContainer}>
-            <Ionicons name="key" size={40} color={colors.white} />
+            <Ionicons name="key-outline" size={34} color={NEU.accent} />
           </View>
 
           <Text style={styles.title}>Forgot Password?</Text>
@@ -66,12 +83,18 @@ export default function ForgotPassword() {
           </Text>
 
           <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email Address</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="mail" size={20} color="#999" style={styles.inputIcon} />
+              <Ionicons
+                name="mail-outline"
+                size={18}
+                color={NEU.textMuted}
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="Enter your registered email address"
-                placeholderTextColor="#999"
+                placeholderTextColor={NEU.textFaint}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
@@ -85,13 +108,16 @@ export default function ForgotPassword() {
             style={styles.sendButton}
             onPress={handleSendReset}
             disabled={loading || sent}
+            activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={NEU.accent} />
             ) : (
               <>
-                <Ionicons name="paper-plane" size={20} color="#fff" />
-                <Text style={styles.sendButtonText}>Send Reset Code</Text>
+                <Ionicons name="paper-plane-outline" size={18} color={NEU.accent} />
+                <Text style={styles.sendButtonText}>
+                  {sent ? 'Reset Code Sent' : 'Send Reset Code'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -99,23 +125,24 @@ export default function ForgotPassword() {
           <TouchableOpacity
             style={styles.backLink}
             onPress={() => router.push('/(auth)/login')}
+            activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={16} color={colors.primary} />
+            <Ionicons name="arrow-back" size={16} color={NEU.accent} />
             <Text style={styles.backLinkText}>Back to Login</Text>
           </TouchableOpacity>
 
           <View style={styles.features}>
             <View style={styles.feature}>
-              <Ionicons name="time" size={16} color={colors.textSecondary} />
-              <Text style={styles.featureText}>Valid for 1 hour</Text>
+              <Ionicons name="time-outline" size={14} color={NEU.textMuted} />
+              <Text style={styles.featureText}>Valid 1 hour</Text>
             </View>
             <View style={styles.feature}>
-              <Ionicons name="shield-checkmark" size={16} color={colors.textSecondary} />
-              <Text style={styles.featureText}>Secure & Encrypted</Text>
+              <Ionicons name="shield-checkmark-outline" size={14} color={NEU.textMuted} />
+              <Text style={styles.featureText}>Secure</Text>
             </View>
             <View style={styles.feature}>
-              <Ionicons name="mail" size={16} color={colors.textSecondary} />
-              <Text style={styles.featureText}>Check your inbox</Text>
+              <Ionicons name="mail-outline" size={14} color={NEU.textMuted} />
+              <Text style={styles.featureText}>Check inbox</Text>
             </View>
           </View>
         </View>
@@ -127,7 +154,7 @@ export default function ForgotPassword() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: NEU.bg,
   },
   scrollContent: {
     flexGrow: 1,
@@ -135,83 +162,133 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   card: {
-    backgroundColor: colors.white,
-    borderRadius: 20,
+    backgroundColor: NEU.bg,
+    borderRadius: 28,
     padding: spacing.xl,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    // large raised neumorphic panel
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 8, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 18,
     elevation: 8,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow,
+    borderLeftColor: NEU.lightShadow,
   },
   iconContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
+    backgroundColor: NEU.bg,
+    // inset circle
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 2,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.4)',
+    borderLeftColor: 'rgba(163,177,198,0.4)',
   },
   title: {
     fontSize: typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
-    color: colors.text,
+    fontWeight: '800',
+    color: NEU.text,
     marginBottom: spacing.xs,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
+    color: NEU.textMuted,
     textAlign: 'center',
     marginBottom: spacing.lg,
+    lineHeight: 20,
+    paddingHorizontal: spacing.sm,
   },
   inputGroup: {
     width: '100%',
     marginBottom: spacing.lg,
+    gap: spacing.xs,
+  },
+  label: {
+    fontSize: typography.sizes.sm,
+    fontWeight: '600',
+    color: NEU.text,
+    paddingLeft: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.gray,
+    borderRadius: 14,
+    paddingHorizontal: spacing.md,
+    backgroundColor: NEU.bg,
+    // inset field
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.55,
+    shadowRadius: 6,
+    elevation: 2,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(163,177,198,0.5)',
+    borderLeftColor: 'rgba(163,177,198,0.5)',
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    borderBottomColor: NEU.lightShadow,
+    borderRightColor: NEU.lightShadow,
   },
   inputIcon: {
-    paddingLeft: spacing.md,
+    marginRight: spacing.sm,
   },
   input: {
     flex: 1,
-    padding: spacing.md,
+    paddingVertical: spacing.md,
     fontSize: typography.sizes.sm,
-    color: colors.text,
+    color: NEU.text,
   },
   sendButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
-    padding: spacing.md,
-    borderRadius: 10,
+    backgroundColor: NEU.bg,
+    paddingVertical: spacing.md,
+    borderRadius: 16,
     gap: spacing.sm,
     width: '100%',
+    // raised neumorphic
+    shadowColor: NEU.darkShadow,
+    shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 6,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: NEU.lightShadow,
+    borderLeftColor: NEU.lightShadow,
   },
   sendButtonText: {
-    color: colors.white,
+    color: NEU.accent,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   backLink: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: spacing.md,
     gap: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   backLinkText: {
     fontSize: typography.sizes.sm,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
+    color: NEU.accent,
+    fontWeight: '700',
   },
   features: {
     flexDirection: 'row',
@@ -220,15 +297,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     paddingTop: spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: NEU.bgDark,
   },
   feature: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 4,
   },
   featureText: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
+    fontSize: 10,
+    color: NEU.textMuted,
+    fontWeight: '500',
   },
 });
